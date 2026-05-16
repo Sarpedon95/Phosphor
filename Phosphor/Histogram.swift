@@ -54,7 +54,10 @@ enum Histogram {
                                 rPtr.baseAddress, gPtr.baseAddress, bPtr.baseAddress, aPtr.baseAddress
                             ]
                             return pointers.withUnsafeMutableBufferPointer { p in
-                                vImageHistogramCalculation_ARGB8888(&buffer, p.baseAddress, vImage_Flags(kvImageNoFlags))
+                                guard let baseAddress = p.baseAddress else {
+                                    return vImage_Error(kvImageNullPointerArgument)
+                                }
+                                return vImageHistogramCalculation_ARGB8888(&buffer, baseAddress, vImage_Flags(kvImageNoFlags))
                             }
                         }
                     }
