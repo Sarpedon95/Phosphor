@@ -1,0 +1,112 @@
+import Foundation
+import UIKit
+import Accelerate
+
+/// Computes RGB histograms via Accelerate's vImage and renders them as a
+/// SwiftUI `Canvas`. The compute step is `nonisolated` so callers run it
+/// off-main via `Task.detached`.
+enum Histogram {
+
+    struct Data: Equatable {
+        let red: [UInt]
+        let green: [UInt]
+        let blue: [UInt]
+    }
+
+    /// 256-bucket per-channel histogram. Returns nil if the image's pixel data
+    /// cannot be obtained.
+    nonisolated static func compute(from image: UIImage) -> Data? {
+        guard let cgImage = image.cgImage else { return nil }
+
+        let width = cgImage.width
+        let height = cgImage.height
+        let bytesPerRow = width * 4
+        let byteCount = bytesPerRow * height
+        var pixels = [UInt8](repeating: 0, count: byteCount)
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        guard let context = CGContext(
+            data: &pixels,
+            width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+            space: colorSpace, bitmapInfo: bitmapInfo
+        ) else { return nil }
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        var buffer = vImage_Buffer(
+            data: &pixels,
+            height: vImagePixelCount(height),
+            width: vImagePixelCount(width),
+            rowBytes: bytesPerRow
+        )
+
+        var redHist = [vImagePixelCount](repeating: 0, count: 256)
+        var greenHist = [vImagePixelCount](repeating: 0, count: 256)
+        var blueHist = [vImagePixelCount](repeating: 0, count: 256)
+        var alphaHist = [vImagePixelCount](repeating: 0, count: 256)
+
+        let result = redHist.withUnsafeMutableBufferPointer { rPtr in
+            greenHist.withUnsafeMutableBufferPointer { gPtr in
+                blueHist.withUnsafeMutableBufferPointer { bPtr in
+                    alphaHist.withUnsafeMutableBufferPointer { aPtr in
+                        var pointers: [UnsafeMutablePointer<vImagePixelCount>?] = [
+                            rPtr.baseAddress, gPtr.baseAddress, bPtr.baseAddress, aPtr.baseAddress
+                        ]
+                        return pointers.withUnsafeMutableBufferPointer { p in
+                            vImageHistogramCalculation_ARGB8888(&buffer, p.baseAddress, vImage_Flags(kvImageNoFlags))
+                        }
+                    }
+                }
+            }
+        }
+        guard result == kvImageNoError else { return nil }
+
+        return Data(
+            red: redHist.map { UInt($0) },
+            green: greenHist.map { UInt($0) },
+            blue: blueHist.map { UInt($0) }
+        )
+    }
+}
+
+import SwiftUI
+
+struct HistogramView: View {
+    let data: Histogram.Data
+
+    var body: some View {
+        Canvas { context, size in
+            let maxValue = max(
+                data.red.max() ?? 1,
+                data.green.max() ?? 1,
+                data.blue.max() ?? 1,
+                1
+            )
+            drawChannel(data.red, color: .red, in: size, context: &context, maxValue: maxValue)
+            drawChannel(data.green, color: .green, in: size, context: &context, maxValue: maxValue)
+            drawChannel(data.blue, color: .blue, in: size, context: &context, maxValue: maxValue)
+        }
+        .frame(height: 80)
+        .accessibilityLabel("RGB histogram")
+    }
+
+    private func drawChannel(
+        _ counts: [UInt],
+        color: Color,
+        in size: CGSize,
+        context: inout GraphicsContext,
+        maxValue: UInt
+    ) {
+        var path = Path()
+        let stride = size.width / 256
+        path.move(to: CGPoint(x: 0, y: size.height))
+        for i in counts.indices {
+            let h = size.height * CGFloat(Double(counts[i]) / Double(maxValue))
+            path.addLine(to: CGPoint(x: CGFloat(i) * stride, y: size.height - h))
+        }
+        path.addLine(to: CGPoint(x: size.width, y: size.height))
+        path.closeSubpath()
+        context.fill(path, with: .color(color.opacity(0.35)))
+    }
+}

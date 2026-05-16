@@ -1,0 +1,30 @@
+# XcodeGen generates this — never commit it
+Phosphor.xcodeproj/
+
+# Build artifacts
+build/
+DerivedData/
+*.xcarchive
+*.ipa
+*.dSYM.zip
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Signing material (never commit)
+*.p12
+*.mobileprovision
+*.cer
+
+# macOS
+.DS_Store
+
+# Logs
+build.log
+*.log

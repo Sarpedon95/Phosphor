@@ -1,0 +1,138 @@
+name: Phosphor
+
+options:
+  bundleIdPrefix: com.sarpedon
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+  groupSortPosition: top
+  xcodeVersion: "16.3"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_LANGUAGE: en
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGNING_ALLOWED: NO
+  configs:
+    # Warnings-as-errors only for the shipping (Release) build, so day-to-day
+    # Debug iteration isn't blocked by transient warnings.
+    Release:
+      SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+
+targets:
+  Phosphor:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      # Recursive directory include. XcodeGen auto-detects file types and
+      # routes them to the correct build phase — including HSLKernel.metal,
+      # which goes to "Compile Sources" and is built into the default
+      # metallib. A second explicit entry for the .metal file would create a
+      # duplicate reference and fail generation, so it is intentionally NOT
+      # listed separately.
+      - path: Phosphor
+    dependencies:
+      - target: PhosphorWidgets
+      - target: PhosphorLiveActivity
+    entitlements:
+      path: Phosphor/Phosphor.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.sarpedon.phosphor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sarpedon.phosphor
+        PRODUCT_NAME: Phosphor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_PREVIEWS: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    info:
+      path: Phosphor/Info.plist
+      properties:
+        CFBundleDisplayName: Phosphor
+        CFBundleName: Phosphor
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
+        # Phosphor uses only HTTPS (exempt) and Apple-provided crypto — no
+        # proprietary encryption. Declaring this skips the App Store Connect
+        # export-compliance prompt on every upload.
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIUserInterfaceStyle: Dark
+        # Portrait-only by design — every layout is composed for portrait.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+        UIBackgroundModes:
+          - fetch
+          - processing
+        NSSupportsLiveActivities: true
+        NSFaceIDUsageDescription: "Phosphor uses Face ID to unlock the app when App Lock is on."
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.sarpedon.phosphor.refresh
+          - com.sarpedon.phosphor.upload
+        CFBundleURLTypes:
+          - CFBundleURLName: com.sarpedon.phosphor
+            CFBundleURLSchemes:
+              - phosphor
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSPhotoLibraryAddUsageDescription: "Phosphor saves photos and videos to your photo library."
+        NSPhotoLibraryUsageDescription: "Phosphor accesses your photo library to back up and manage media."
+        NSCameraUsageDescription: "Phosphor uses the camera to capture and upload media."
+
+  PhosphorWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: PhosphorWidgets
+    entitlements:
+      path: PhosphorWidgets/PhosphorWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.sarpedon.phosphor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sarpedon.phosphor.widgets
+        PRODUCT_NAME: PhosphorWidgets
+        INFOPLIST_FILE: PhosphorWidgets/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        SWIFT_EMIT_LOC_STRINGS: YES
+
+  PhosphorLiveActivity:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: PhosphorLiveActivity
+      # The attributes type is shared with the main app — compile it into both
+      # targets so the extension can decode the ActivityKit payload.
+      - path: Phosphor/PhosphorLiveActivityAttributes.swift
+    entitlements:
+      path: PhosphorLiveActivity/PhosphorLiveActivity.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.sarpedon.phosphor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sarpedon.phosphor.liveactivity
+        PRODUCT_NAME: PhosphorLiveActivity
+        INFOPLIST_FILE: PhosphorLiveActivity/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        SWIFT_EMIT_LOC_STRINGS: YES
