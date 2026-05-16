@@ -28,6 +28,10 @@ settings:
       # causing CompileAssetCatalogVariant to fail. Disabling asset optimization
       # prevents the generation of thinned variants that trigger the bug.
       ASSETCATALOG_COMPILER_SKIP_OPTIMIZATION: YES
+      # Prevent any platform variant generation for device archives
+      SUPPORTED_PLATFORMS: iphoneos
+      PLATFORM_PREFERRED_ARCH: arm64
+      ARCHS: arm64
 
 targets:
   Phosphor:

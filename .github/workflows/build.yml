@@ -133,7 +133,8 @@ jobs:
             -project Phosphor.xcodeproj \
             -scheme Phosphor \
             -configuration Release \
-            -destination 'generic/platform=iphoneos' \
+            -sdk iphoneos \
+            -destination generic/platform=iphoneos \
             -archivePath "$ARCHIVE_PATH" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             CODE_SIGN_STYLE=Manual \
