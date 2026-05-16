@@ -28,7 +28,7 @@ on:
 jobs:
   build:
     name: Archive & Upload
-    runs-on: macos-15
+    runs-on: macos-14
     timeout-minutes: 45
 
     env:
