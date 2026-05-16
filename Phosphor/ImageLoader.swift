@@ -30,22 +30,22 @@ actor ImageLoader {
     }
 
     private var inflight: [String: Task<UIImage?, Never>] = [:]
-    private var memoryWarningObserver: NSObjectProtocol?
+    private nonisolated var memoryWarningObserver: NSObjectProtocol?
 
-    init() {
+    nonisolated init() {
         memoryWarningObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil,
             queue: nil
-        ) { [weak self] _ in
-            Task { await self?.clearCache() }
+        ) { _ in
+            Task { await ImageLoader.shared.clearCache() }
         }
     }
 
     deinit {
         for task in inflight.values { task.cancel() }
-        if let memoryWarningObserver {
-            NotificationCenter.default.removeObserver(memoryWarningObserver)
+        if let observer = memoryWarningObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 
