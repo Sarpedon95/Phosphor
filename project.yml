@@ -7,7 +7,7 @@ options:
   createIntermediateGroups: true
   generateEmptyDirectories: true
   groupSortPosition: top
-  xcodeVersion: "16.4"
+  xcodeVersion: "16.3"
 
 settings:
   base:
@@ -23,6 +23,11 @@ settings:
     # Debug iteration isn't blocked by transient warnings.
     Release:
       SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+      # Xcode 16.3 actool bug: during device-only archives, actool incorrectly
+      # attempts to resolve simulator runtimes for thinned asset variants,
+      # causing CompileAssetCatalogVariant to fail. Setting ONLY_ACTIVE_ARCH=YES
+      # prevents Xcode from attempting any simulator-related builds.
+      ONLY_ACTIVE_ARCH: YES
 
 targets:
   Phosphor:
