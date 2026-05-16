@@ -34,27 +34,28 @@ enum Histogram {
         ) else { return nil }
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
 
-        var buffer = vImage_Buffer(
-            data: &pixels,
-            height: vImagePixelCount(height),
-            width: vImagePixelCount(width),
-            rowBytes: bytesPerRow
-        )
-
         var redHist = [vImagePixelCount](repeating: 0, count: 256)
         var greenHist = [vImagePixelCount](repeating: 0, count: 256)
         var blueHist = [vImagePixelCount](repeating: 0, count: 256)
         var alphaHist = [vImagePixelCount](repeating: 0, count: 256)
 
-        let result = redHist.withUnsafeMutableBufferPointer { rPtr in
-            greenHist.withUnsafeMutableBufferPointer { gPtr in
-                blueHist.withUnsafeMutableBufferPointer { bPtr in
-                    alphaHist.withUnsafeMutableBufferPointer { aPtr in
-                        var pointers: [UnsafeMutablePointer<vImagePixelCount>?] = [
-                            rPtr.baseAddress, gPtr.baseAddress, bPtr.baseAddress, aPtr.baseAddress
-                        ]
-                        return pointers.withUnsafeMutableBufferPointer { p in
-                            vImageHistogramCalculation_ARGB8888(&buffer, p.baseAddress, vImage_Flags(kvImageNoFlags))
+        let result = pixels.withUnsafeMutableBytes { pixelBytes in
+            var buffer = vImage_Buffer(
+                data: pixelBytes.baseAddress,
+                height: vImagePixelCount(height),
+                width: vImagePixelCount(width),
+                rowBytes: bytesPerRow
+            )
+            return redHist.withUnsafeMutableBufferPointer { rPtr in
+                greenHist.withUnsafeMutableBufferPointer { gPtr in
+                    blueHist.withUnsafeMutableBufferPointer { bPtr in
+                        alphaHist.withUnsafeMutableBufferPointer { aPtr in
+                            var pointers: [UnsafeMutablePointer<vImagePixelCount>?] = [
+                                rPtr.baseAddress, gPtr.baseAddress, bPtr.baseAddress, aPtr.baseAddress
+                            ]
+                            return pointers.withUnsafeMutableBufferPointer { p in
+                                vImageHistogramCalculation_ARGB8888(&buffer, p.baseAddress, vImage_Flags(kvImageNoFlags))
+                            }
                         }
                     }
                 }

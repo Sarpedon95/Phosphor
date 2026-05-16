@@ -95,20 +95,22 @@ struct HistogramView: View {
             var blue = [vImagePixelCount](repeating: 0, count: 256)
             var alpha = [vImagePixelCount](repeating: 0, count: 256)
 
-            var buffer = vImage_Buffer(
-                data: &px, height: vImagePixelCount(h),
-                width: vImagePixelCount(w), rowBytes: bpr
-            )
-            let ok: vImage_Error = red.withUnsafeMutableBufferPointer { rp in
-                green.withUnsafeMutableBufferPointer { gp in
-                    blue.withUnsafeMutableBufferPointer { bp in
-                        alpha.withUnsafeMutableBufferPointer { ap in
-                            var hist = [rp.baseAddress, gp.baseAddress, bp.baseAddress, ap.baseAddress]
-                            return hist.withUnsafeMutableBufferPointer { hp in
-                                guard let base = hp.baseAddress else {
-                                    return vImage_Error(kvImageNullPointerArgument)
+            let ok: vImage_Error = px.withUnsafeMutableBytes { pxBytes in
+                var buffer = vImage_Buffer(
+                    data: pxBytes.baseAddress, height: vImagePixelCount(h),
+                    width: vImagePixelCount(w), rowBytes: bpr
+                )
+                return red.withUnsafeMutableBufferPointer { rp in
+                    green.withUnsafeMutableBufferPointer { gp in
+                        blue.withUnsafeMutableBufferPointer { bp in
+                            alpha.withUnsafeMutableBufferPointer { ap in
+                                var hist = [rp.baseAddress, gp.baseAddress, bp.baseAddress, ap.baseAddress]
+                                return hist.withUnsafeMutableBufferPointer { hp in
+                                    guard let base = hp.baseAddress else {
+                                        return vImage_Error(kvImageNullPointerArgument)
+                                    }
+                                    return vImageHistogramCalculation_ARGB8888(&buffer, base, vImage_Flags(kvImageNoFlags))
                                 }
-                                return vImageHistogramCalculation_ARGB8888(&buffer, base, vImage_Flags(kvImageNoFlags))
                             }
                         }
                     }

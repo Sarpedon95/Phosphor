@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Phosphor's dark palette in one place. Reach for these instead of ad-hoc
 /// `Color(white: 0.12)` so palette tuning is a single-file change.
-extension Color {
+public extension Color {
     // MARK: Stage-7 palette (authoritative values)
 
     /// Base app background — near-black with a hair of lift to avoid OLED smear.
