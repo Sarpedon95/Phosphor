@@ -140,6 +140,7 @@ jobs:
             CODE_SIGN_IDENTITY="${{ secrets.CODE_SIGN_IDENTITY }}" \
             PROVISIONING_PROFILE_SPECIFIER="${{ secrets.PROVISIONING_PROFILE_SPECIFIER }}" \
             DEVELOPMENT_TEAM="${{ secrets.TEAM_ID }}" \
+            ASSETCATALOG_COMPILER_SKIP_OPTIMIZATION=YES \
             | tee build.log
 
       # 10. Export the archive to an IPA using ExportOptions.plist.
