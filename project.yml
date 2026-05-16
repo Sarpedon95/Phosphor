@@ -25,9 +25,9 @@ settings:
       SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
       # Xcode 16.3 actool bug: during device-only archives, actool incorrectly
       # attempts to resolve simulator runtimes for thinned asset variants,
-      # causing CompileAssetCatalogVariant to fail. Setting ONLY_ACTIVE_ARCH=YES
-      # prevents Xcode from attempting any simulator-related builds.
-      ONLY_ACTIVE_ARCH: YES
+      # causing CompileAssetCatalogVariant to fail. Disabling asset optimization
+      # prevents the generation of thinned variants that trigger the bug.
+      ASSETCATALOG_COMPILER_SKIP_OPTIMIZATION: YES
 
 targets:
   Phosphor:
