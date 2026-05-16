@@ -30,9 +30,9 @@ actor ImageLoader {
     }
 
     private var inflight: [String: Task<UIImage?, Never>] = [:]
-    private nonisolated var memoryWarningObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var memoryWarningObserver: NSObjectProtocol?
 
-    nonisolated init() {
+    init() {
         memoryWarningObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil,
