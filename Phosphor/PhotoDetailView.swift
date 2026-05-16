@@ -1101,7 +1101,7 @@ private extension String {
 
 // MARK: - Document picker bridge
 
-extension URL: Identifiable {
+extension URL: @retroactive Identifiable {
     public var id: String { absoluteString }
 }
 

@@ -11,7 +11,7 @@ struct HSLAdjustment: Codable, Equatable, Hashable {
     var lum: Double = 0    // -1…+1
 }
 
-struct EditAdjustments: Codable, Equatable {
+struct EditAdjustments: Codable, Equatable, Hashable {
     var exposure: Double = 0
     var brightness: Double = 0
     var contrast: Double = 1.0
