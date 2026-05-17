@@ -118,8 +118,8 @@ final class EditingViewModel: ObservableObject {
         guard let full = await ImageLoader.shared.fullImage(for: asset.id) else { return }
         originalImage = full
         // Screen-resolution working copy for live preview.
-        let screenScale = await UIScreen.main.scale
-        let target = await UIScreen.main.bounds.size
+        let screenScale = UIScreen.main.scale
+        let target = UIScreen.main.bounds.size
         let longest = max(target.width, target.height) * screenScale
         screenResImage = Self.downsample(full, longest: longest)
         previewImage = screenResImage
@@ -406,7 +406,7 @@ final class EditingViewModel: ObservableObject {
                 ci = ci.cropped(to: cropPx)
             }
 
-            guard let outCG = context.createCGImage(ci, from: ci.extent) else { return image }
+            guard let outCG = await context.createCGImage(ci, from: ci.extent) else { return image }
             return UIImage(cgImage: outCG, scale: image.scale, orientation: image.imageOrientation)
         }.value
     }

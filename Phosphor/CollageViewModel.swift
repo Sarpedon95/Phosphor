@@ -121,7 +121,7 @@ final class CollageViewModel: ObservableObject {
     /// upload to Immich is done by the caller via `ImmichAPI.uploadAsset`.
     func writeSidecar(for image: UIImage, uploadedAssetId: String?) async {
         guard let spec else { return }
-        let canvasPx = exportSize(for: spec, quality: .high)
+        guard let canvasPx = exportSize(for: spec, quality: .high) else { return }
         let cells: [SidecarCell] = spec.cells.map { cell in
             let canvasFrame = CGRect(
                 x: cell.frame.minX * canvasPx.width,

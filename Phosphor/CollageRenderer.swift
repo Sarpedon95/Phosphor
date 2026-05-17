@@ -131,7 +131,7 @@ actor CollageRenderer {
 
         // Compute the destination frame in pixels.
         let effectiveGap = (spec.blendMode == .fullBleed) ? 0 : spec.gapWidth
-        var destPx = CGRect(
+        let destPx = CGRect(
             x: cell.frame.minX * canvasPx.width + effectiveGap / 2,
             y: (1 - cell.frame.maxY) * canvasPx.height + effectiveGap / 2,
             width: cell.frame.width * canvasPx.width - effectiveGap,

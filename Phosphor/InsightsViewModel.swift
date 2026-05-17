@@ -48,18 +48,18 @@ final class InsightsViewModel: ObservableObject {
     /// Re-entrancy guard for concurrent `load()` calls — the view can appear
     /// multiple times (push/pop, scenePhase) and we don't want two parallel
     /// 1000-asset fetches racing each other.
-    private var inflight: Task<Void, Never>?
+    private var inflight: Task<Void?, Never>?
 
     func load() async {
         if let inflight {
-            await inflight.value
+            _ = await inflight.value
             return
         }
         let task = Task { @MainActor [weak self] in
             await self?.performLoad()
         }
         inflight = task
-        await task.value
+        _ = await task.value
         inflight = nil
     }
 
