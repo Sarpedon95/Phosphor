@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import ImageIO
+import Photos
 
 struct BatchExportView: View {
     let assets: [ImmichAsset]
@@ -291,7 +292,14 @@ struct BatchExportView: View {
         }
         for url in urls {
             if let data = try? Data(contentsOf: url), let image = UIImage(data: data) {
-                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                do {
+                    try await PHPhotoLibrary.shared().performChanges {
+                        PHAssetChangeRequest.creationRequestForAssetFromImage(image)
+                    }
+                } catch {
+                    progressText = "Failed to save image."
+                    return
+                }
             }
         }
         progressText = "Saved \(urls.count) to Camera Roll."

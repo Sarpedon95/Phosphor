@@ -580,10 +580,16 @@ struct PhotoDetailView: View {
     }
 
     private func downloadOriginal(_ asset: ImmichAsset) async {
-        if let image = await ImageLoader.shared.fullImage(for: asset.id) {
-            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        guard let image = await ImageLoader.shared.fullImage(for: asset.id) else {
+            HapticManager.notify(.error)
+            return
+        }
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAssetFromImage(image)
+            }
             HapticManager.notify(.success)
-        } else {
+        } catch {
             HapticManager.notify(.error)
         }
     }
@@ -601,13 +607,20 @@ struct PhotoDetailView: View {
     /// permits direct wallpaper setting from third-party apps.
     private func useAsWallpaper(_ asset: ImmichAsset) async {
         guard let image = await ImageLoader.shared.fullImage(for: asset.id) else {
-            HapticManager.notification(.error); return
+            HapticManager.notification(.error)
+            return
         }
-        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-        if let settings = URL(string: "App-Prefs:Wallpaper") {
-            await UIApplication.shared.open(settings)
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAssetFromImage(image)
+            }
+            if let settings = URL(string: "App-Prefs:Wallpaper") {
+                await UIApplication.shared.open(settings)
+            }
+            HapticManager.notification(.success)
+        } catch {
+            HapticManager.notification(.error)
         }
-        HapticManager.notification(.success)
     }
 
     private func saveToFiles(_ asset: ImmichAsset) async {

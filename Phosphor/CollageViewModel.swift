@@ -106,14 +106,13 @@ final class CollageViewModel: ObservableObject {
     func saveToPhotos(_ image: UIImage) async -> Bool {
         let status = await BackupManager.requestPhotoLibraryAccess()
         guard status == .authorized || status == .limited else { return false }
-        return await withCheckedContinuation { cont in
-            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-            // No completion handler available without a target/selector; the
-            // write is best-effort. Treat as success after a brief settle.
-            Task {
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                cont.resume(returning: true)
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAssetFromImage(image)
             }
+            return true
+        } catch {
+            return false
         }
     }
 

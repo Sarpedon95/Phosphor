@@ -1,6 +1,7 @@
 import SwiftUI
 import ImageIO
 import UniformTypeIdentifiers
+import Photos
 
 struct PrintSize: Identifiable, Hashable {
     let id = UUID()
@@ -262,9 +263,16 @@ struct PrintPrepView: View {
             if let saved = saveWithDPI(resized, dpi: dpi) {
                 let status = await BackupManager.requestPhotoLibraryAccess()
                 if status == .authorized || status == .limited {
-                    UIImageWriteToSavedPhotosAlbum(saved, nil, nil, nil)
-                    statusText = "Saved to Camera Roll at \(Int(dpi)) DPI."
-                    HapticManager.notification(.success)
+                    do {
+                        try await PHPhotoLibrary.shared().performChanges {
+                            PHAssetChangeRequest.creationRequestForAssetFromImage(saved)
+                        }
+                        statusText = "Saved to Camera Roll at \(Int(dpi)) DPI."
+                        HapticManager.notification(.success)
+                    } catch {
+                        statusText = "Failed to save image."
+                        HapticManager.notification(.error)
+                    }
                 } else {
                     statusText = "Photo library access denied."
                 }
