@@ -214,6 +214,7 @@ final class ImmichAPI {
     func authorizedImageRequest(for url: URL) throws -> URLRequest {
         guard let key = apiKey else { throw ImmichError.notConfigured }
         var request = URLRequest(url: url)
+        request.timeoutInterval = 30
         request.setValue(key, forHTTPHeaderField: "x-api-key")
         return request
     }

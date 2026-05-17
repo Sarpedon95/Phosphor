@@ -68,135 +68,99 @@ final class InsightsViewModel: ObservableObject {
         error = nil
         defer { isLoading = false }
         do {
-            // Pull a generous sample for client-side aggregation. Insights is
-            // approximate by design; the user is reading trends, not exact totals.
             async let recent = ImmichAPI.shared.searchFiltered(size: 1000)
             async let stats = ImmichAPI.shared.fetchServerStatistics()
             async let people = ImmichAPI.shared.fetchPeople()
             let (assets, serverStats, peopleList) = try await (recent, stats, people)
-
-            aggregateMonths(assets)
-            aggregateStorage(assets, totalUsage: serverStats.storageUsed)
-            aggregateLocations(assets)
-            aggregateCameras(assets)
-            aggregatePeople(assets, allPeople: peopleList)
-            aggregateHeatmap(assets)
+            aggregate(assets, totalUsage: serverStats.storageUsed, allPeople: peopleList)
         } catch let caught {
             error = (caught as? ImmichError) ?? .networkError(caught)
         }
     }
 
-    // MARK: - Aggregation
+    // MARK: - Aggregation (single pass over assets)
 
-    private func aggregateMonths(_ assets: [ImmichAsset]) {
+    private func aggregate(_ assets: [ImmichAsset], totalUsage: Int64, allPeople: [Person]) {
         let calendar = Calendar.current
-        var counts: [String: (date: Date, count: Int)] = [:]
         let now = Date()
-        let earliest = calendar.date(byAdding: .month, value: -24, to: now) ?? .distantPast
-        for asset in assets where asset.localDateTime >= earliest {
-            let comps = calendar.dateComponents([.year, .month], from: asset.localDateTime)
-            guard let date = calendar.date(from: comps) else { continue }
-            let key = "\(comps.year ?? 0)-\(comps.month ?? 0)"
-            let prev = counts[key]?.count ?? 0
-            counts[key] = (date, prev + 1)
-        }
-        photosByMonth = counts.map { key, value in
-            MonthStat(id: key, month: value.date, count: value.count)
-        }
-        .sorted { $0.month < $1.month }
-    }
+        let earliest24m = calendar.date(byAdding: .month, value: -24, to: now) ?? .distantPast
+        let earliest364d = calendar.date(byAdding: .day, value: -364, to: now) ?? .distantPast
+        let rawExts: Set<String> = ["cr2", "arw", "nef", "dng", "rw2", "raf", "orf"]
 
-    private func aggregateStorage(_ assets: [ImmichAsset], totalUsage: Int64) {
+        var monthCounts: [String: (date: Date, count: Int)] = [:]
         var breakdown = StorageBreakdown()
         var sampleTotal: Int64 = 0
-        let rawExts: Set<String> = ["cr2", "arw", "nef", "dng", "rw2", "raf", "orf"]
+        var locationCounts: [String: Int] = [:]
+        var cameraCounts: [String: Int] = [:]
+        var personCounts: [String: Int] = [:]
+        var heatBuckets: [Date: Int] = [:]
+        heatBuckets.reserveCapacity(365)
+
         for asset in assets {
+            let date = asset.localDateTime
+
+            if date >= earliest24m {
+                let comps = calendar.dateComponents([.year, .month], from: date)
+                if let monthDate = calendar.date(from: comps) {
+                    let key = "\(comps.year ?? 0)-\(comps.month ?? 0)"
+                    monthCounts[key] = (monthDate, (monthCounts[key]?.count ?? 0) + 1)
+                }
+            }
+
             let size = asset.fileSizeInByte ?? 0
             sampleTotal += size
             let ext = (asset.originalFileName as NSString).pathExtension.lowercased()
-            if asset.isVideo {
-                breakdown.videos += size
-            } else if rawExts.contains(ext) {
-                breakdown.raw += size
-            } else if asset.type == .image {
-                breakdown.photos += size
-            } else {
-                breakdown.other += size
+            if asset.isVideo { breakdown.videos += size }
+            else if rawExts.contains(ext) { breakdown.raw += size }
+            else if asset.type == .image { breakdown.photos += size }
+            else { breakdown.other += size }
+
+            if let city = asset.exifInfo?.city, !city.isEmpty {
+                locationCounts[city, default: 0] += 1
+            }
+
+            let make = asset.exifInfo?.make ?? ""
+            let model = asset.exifInfo?.model ?? ""
+            let cam = "\(make) \(model)".trimmingCharacters(in: .whitespaces)
+            if !cam.isEmpty { cameraCounts[cam, default: 0] += 1 }
+
+            for person in asset.people ?? [] {
+                personCounts[person.id, default: 0] += 1
+            }
+
+            if date >= earliest364d && date <= now {
+                heatBuckets[calendar.startOfDay(for: date), default: 0] += 1
             }
         }
-        // Scale the sample proportions onto the server's reported total so
-        // the chart matches reality even when the sample is < library size.
+
+        photosByMonth = monthCounts.map { MonthStat(id: $0.key, month: $0.value.date, count: $0.value.count) }
+            .sorted { $0.month < $1.month }
+
         if sampleTotal > 0 && totalUsage > 0 {
             let scale = Double(totalUsage) / Double(sampleTotal)
             breakdown.photos = Int64(Double(breakdown.photos) * scale)
             breakdown.videos = Int64(Double(breakdown.videos) * scale)
-            breakdown.raw = Int64(Double(breakdown.raw) * scale)
+            breakdown.raw   = Int64(Double(breakdown.raw)   * scale)
             breakdown.other = Int64(Double(breakdown.other) * scale)
         }
         storageBreakdown = breakdown
-    }
 
-    private func aggregateLocations(_ assets: [ImmichAsset]) {
-        var counts: [String: Int] = [:]
-        for asset in assets {
-            if let city = asset.exifInfo?.city, !city.isEmpty {
-                counts[city, default: 0] += 1
-            }
-        }
-        topLocations = counts
+        topLocations = locationCounts
             .map { LocationStat(city: $0.key, count: $0.value) }
-            .sorted { $0.count > $1.count }
-            .prefix(5)
-            .map { $0 }
-    }
+            .sorted { $0.count > $1.count }.prefix(5).map { $0 }
 
-    private func aggregateCameras(_ assets: [ImmichAsset]) {
-        var counts: [String: Int] = [:]
-        for asset in assets {
-            let make = asset.exifInfo?.make ?? ""
-            let model = asset.exifInfo?.model ?? ""
-            let combined = "\(make) \(model)".trimmingCharacters(in: .whitespaces)
-            guard !combined.isEmpty else { continue }
-            counts[combined, default: 0] += 1
-        }
-        topCameras = counts
+        topCameras = cameraCounts
             .map { CameraStat(makeModel: $0.key, count: $0.value) }
-            .sorted { $0.count > $1.count }
-            .prefix(8)
-            .map { $0 }
-    }
+            .sorted { $0.count > $1.count }.prefix(8).map { $0 }
 
-    private func aggregatePeople(_ assets: [ImmichAsset], allPeople: [Person]) {
-        var counts: [String: Int] = [:]
-        for asset in assets {
-            for person in asset.people ?? [] {
-                counts[person.id, default: 0] += 1
-            }
-        }
-        let stats = allPeople
+        topPeople = Array(allPeople
             .filter { !$0.name.isEmpty }
-            .compactMap { person -> PersonStat? in
-                guard let count = counts[person.id], count > 0 else { return nil }
-                return PersonStat(id: person.id, person: person, count: count)
+            .compactMap { p -> PersonStat? in
+                guard let c = personCounts[p.id], c > 0 else { return nil }
+                return PersonStat(id: p.id, person: p, count: c)
             }
-            .sorted { $0.count > $1.count }
-            .prefix(5)
-        topPeople = Array(stats)
-    }
+            .sorted { $0.count > $1.count }.prefix(5))
 
-    /// Heatmap is intentionally a rolling 365-day window — that's all the
-    /// `HeatmapGrid` (52 weeks × 7 days) can display. Even with multi-year
-    /// libraries this bounds memory to at most ~365 dictionary entries.
-    private func aggregateHeatmap(_ assets: [ImmichAsset]) {
-        let calendar = Calendar.current
-        let now = Date()
-        let earliest = calendar.date(byAdding: .day, value: -364, to: now) ?? .distantPast
-        var buckets: [Date: Int] = [:]
-        buckets.reserveCapacity(365)
-        for asset in assets where asset.localDateTime >= earliest && asset.localDateTime <= now {
-            let day = calendar.startOfDay(for: asset.localDateTime)
-            buckets[day, default: 0] += 1
-        }
-        heatmapData = buckets
+        heatmapData = heatBuckets
     }
 }

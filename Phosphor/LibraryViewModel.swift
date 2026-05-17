@@ -19,13 +19,18 @@ final class LibraryViewModel: ObservableObject {
         didSet { regroup() }
     }
     @Published var sortOrder: TimelineSortOrder = AppSettings.Defaults.timelineSortOrder {
-        didSet { regroup() }
+        didSet { sortCache = nil; regroup() }
     }
 
     private let pageSize = 100
     private var currentPage = 0
     private var isPaging = false
-    private var allAssets: [ImmichAsset] = []
+    private var allAssets: [ImmichAsset] = [] {
+        didSet { sortCache = nil; yearCache = nil }
+    }
+
+    private var sortCache: (order: TimelineSortOrder, assets: [ImmichAsset])?
+    private var yearCache: (years: [Int], counts: [Int: Int], reps: [Int: ImmichAsset])?
 
     // MARK: - Derived
 
@@ -45,21 +50,26 @@ final class LibraryViewModel: ObservableObject {
     var filteredAssetCount: Int { filteredGroupedAssets.reduce(0) { $0 + $1.assets.count } }
 
     /// Distinct years present in the loaded timeline, newest first.
-    var years: [Int] {
-        let calendar = Calendar.current
-        let set = Set(allAssets.map { calendar.component(.year, from: $0.localDateTime) })
-        return set.sorted(by: >)
-    }
+    var years: [Int] { buildYearCache().years }
 
-    /// One representative asset per year (the first/primary in that year).
-    func representative(forYear year: Int) -> ImmichAsset? {
-        let calendar = Calendar.current
-        return allAssets.first { calendar.component(.year, from: $0.localDateTime) == year }
-    }
+    func representative(forYear year: Int) -> ImmichAsset? { buildYearCache().reps[year] }
 
-    func assetCount(forYear year: Int) -> Int {
+    func assetCount(forYear year: Int) -> Int { buildYearCache().counts[year] ?? 0 }
+
+    private func buildYearCache() -> (years: [Int], counts: [Int: Int], reps: [Int: ImmichAsset]) {
+        if let cache = yearCache { return cache }
         let calendar = Calendar.current
-        return allAssets.filter { calendar.component(.year, from: $0.localDateTime) == year }.count
+        var counts: [Int: Int] = [:]
+        var reps: [Int: ImmichAsset] = [:]
+        for asset in allAssets {
+            let year = calendar.component(.year, from: asset.localDateTime)
+            counts[year, default: 0] += 1
+            if reps[year] == nil { reps[year] = asset }
+        }
+        let years = counts.keys.sorted(by: >)
+        let result = (years, counts, reps)
+        yearCache = result
+        return result
     }
 
     // MARK: - Loading
@@ -228,18 +238,22 @@ final class LibraryViewModel: ObservableObject {
     }()
 
     private func sortedAssets() -> [ImmichAsset] {
+        if let cache = sortCache, cache.order == sortOrder { return cache.assets }
+        let sorted: [ImmichAsset]
         switch sortOrder {
         case .newest:
-            return allAssets.sorted { $0.localDateTime > $1.localDateTime }
+            sorted = allAssets.sorted { $0.localDateTime > $1.localDateTime }
         case .oldest:
-            return allAssets.sorted { $0.localDateTime < $1.localDateTime }
+            sorted = allAssets.sorted { $0.localDateTime < $1.localDateTime }
         case .recentlyAdded:
-            return allAssets.sorted { $0.fileCreatedAt > $1.fileCreatedAt }
+            sorted = allAssets.sorted { $0.fileCreatedAt > $1.fileCreatedAt }
         case .fileName:
-            return allAssets.sorted {
+            sorted = allAssets.sorted {
                 $0.originalFileName.localizedCaseInsensitiveCompare($1.originalFileName) == .orderedAscending
             }
         }
+        sortCache = (sortOrder, sorted)
+        return sorted
     }
 
     private func bucketKey(for date: Date, calendar: Calendar) -> (key: String, title: String) {

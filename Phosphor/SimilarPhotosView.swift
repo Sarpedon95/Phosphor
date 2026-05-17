@@ -22,7 +22,7 @@ final class SimilarPhotosViewModel: ObservableObject {
         defer { isLoading = false }
 
         statusText = "Loading reference photo…"
-        guard let refImage = await ImageLoader.shared.fullImage(for: reference.id),
+        guard let refImage = await ImageLoader.shared.thumbnail(for: reference.id, size: .preview),
               let refPrint = await PhotoIntelligenceEngine.shared.computeFeaturePrint(image: refImage)
         else {
             error = "Couldn't analyze the reference photo."

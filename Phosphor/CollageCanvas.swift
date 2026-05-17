@@ -41,12 +41,17 @@ struct CollageCanvas: View {
             ZStack {
                 viewModel.backgroundColor
                 if let spec = viewModel.spec {
-                    ZStack {
+                    let cellStack = ZStack {
                         ForEach(spec.cells) { cell in
                             cellView(cell, canvasSize: canvasSize)
                         }
                     }
                     .frame(width: canvasSize.width, height: canvasSize.height)
+                    if spec.cells.count > 9 {
+                        cellStack.drawingGroup()
+                    } else {
+                        cellStack
+                    }
                 } else if viewModel.isGenerating {
                     ProgressView().tint(.phosphorAccent)
                 }
