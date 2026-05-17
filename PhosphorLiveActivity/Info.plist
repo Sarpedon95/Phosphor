@@ -4,6 +4,8 @@
 <dict>
     <key>CFBundleDisplayName</key>
     <string>Phosphor Backup</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.sarpedon.phosphor.liveactivity</string>
     <key>CFBundleName</key>
     <string>PhosphorLiveActivity</string>
     <key>CFBundleShortVersionString</key>
