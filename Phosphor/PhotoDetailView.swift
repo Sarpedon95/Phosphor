@@ -980,71 +980,7 @@ private struct ExifSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                if let coordinate {
-                    Section {
-                        Map(initialPosition: .region(MKCoordinateRegion(
-                            center: coordinate,
-                            span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-                        ))) {
-                            Marker("Location", coordinate: coordinate)
-                        }
-                        .frame(height: 160)
-                        .listRowInsets(EdgeInsets())
-                    }
-                }
-
-                Section {
-                    if hasCaptureMetadata {
-                        row("Camera", camera)
-                        row("Lens", asset.exifInfo?.lensModel)
-                        row("Focal Length", asset.exifInfo?.focalLength.map { "\(Int($0))mm" })
-                        row("Aperture", asset.exifInfo?.fNumber.map { "f/\(String(format: "%.1f", $0))" })
-                        row("ISO", asset.exifInfo?.iso.map(String.init))
-                        row("Exposure", asset.exifInfo?.exposureTime)
-                    } else {
-                        Text("No metadata available")
-                            .font(Typography.subheadline)
-                            .foregroundStyle(.phosphorSecondary)
-                            .listRowBackground(Color.phosphorSurface)
-                    }
-                } header: {
-                    Text("Capture")
-                }
-
-                Section {
-                    row("Name", asset.originalFileName)
-                    row("Taken", Self.dateFormatter.string(from: asset.localDateTime))
-                    row("Location", [asset.exifInfo?.city, asset.exifInfo?.state, asset.exifInfo?.country]
-                        .compactMap { $0 }
-                        .joined(separator: ", ")
-                        .nilIfEmpty)
-                } header: {
-                    Text("File")
-                }
-
-                if let histogram {
-                    Section {
-                        InlineHistogramView(data: histogram)
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.phosphorSurface)
-                    } header: {
-                        Text("Histogram")
-                    }
-                }
-
-                if let city = asset.exifInfo?.city, !city.isEmpty {
-                    Section {
-                        NearbyPhotosView(city: city, excludeAssetId: asset.id)
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.phosphorSurface)
-                    }
-                }
-
-                Section {
-                    OnThisDayRow(date: asset.localDateTime, excludeAssetId: asset.id)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.phosphorSurface)
-                }
+                listContent
             }
             .scrollContentBackground(.hidden)
             .background(.black)
@@ -1053,6 +989,100 @@ private struct ExifSheet: View {
             .task(id: asset.id) { await computeHistogram() }
         }
         .preferredColorScheme(.dark)
+    }
+
+    @ViewBuilder
+    private var listContent: some View {
+        if let coordinate {
+            locationSection(coordinate: coordinate)
+        }
+        captureSection
+        fileSection
+        if let histogram {
+            histogramSection(histogram: histogram)
+        }
+        if let city = asset.exifInfo?.city, !city.isEmpty {
+            nearbySection(city: city)
+        }
+        onThisDaySection
+    }
+
+    @ViewBuilder
+    private func locationSection(coordinate: CLLocationCoordinate2D) -> some View {
+        Section {
+            Map(initialPosition: .region(MKCoordinateRegion(
+                center: coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+            ))) {
+                Marker("Location", coordinate: coordinate)
+            }
+            .frame(height: 160)
+            .listRowInsets(EdgeInsets())
+        }
+    }
+
+    @ViewBuilder
+    private var captureSection: some View {
+        Section {
+            if hasCaptureMetadata {
+                row("Camera", camera)
+                row("Lens", asset.exifInfo?.lensModel)
+                row("Focal Length", asset.exifInfo?.focalLength.map { "\(Int($0))mm" })
+                row("Aperture", asset.exifInfo?.fNumber.map { "f/\(String(format: "%.1f", $0))" })
+                row("ISO", asset.exifInfo?.iso.map(String.init))
+                row("Exposure", asset.exifInfo?.exposureTime)
+            } else {
+                Text("No metadata available")
+                    .font(Typography.subheadline)
+                    .foregroundStyle(.phosphorSecondary)
+                    .listRowBackground(Color.phosphorSurface)
+            }
+        } header: {
+            Text("Capture")
+        }
+    }
+
+    @ViewBuilder
+    private var fileSection: some View {
+        Section {
+            row("Name", asset.originalFileName)
+            row("Taken", Self.dateFormatter.string(from: asset.localDateTime))
+            row("Location", [asset.exifInfo?.city, asset.exifInfo?.state, asset.exifInfo?.country]
+                .compactMap { $0 }
+                .joined(separator: ", ")
+                .nilIfEmpty)
+        } header: {
+            Text("File")
+        }
+    }
+
+    @ViewBuilder
+    private func histogramSection(histogram: Histogram.Data) -> some View {
+        Section {
+            InlineHistogramView(data: histogram)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.phosphorSurface)
+        } header: {
+            Text("Histogram")
+        }
+    }
+
+    @ViewBuilder
+    private func nearbySection(city: String) -> some View {
+        Section {
+            NearbyPhotosView(city: city, excludeAssetId: asset.id)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.phosphorSurface)
+        }
+    }
+
+    @ViewBuilder
+    private var onThisDaySection: some View {
+        Section {
+            OnThisDayRow(date: asset.localDateTime, excludeAssetId: asset.id)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.phosphorSurface)
+        }
     }
 
     @State private var histogram: Histogram.Data?

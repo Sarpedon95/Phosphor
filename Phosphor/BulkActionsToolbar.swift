@@ -205,39 +205,47 @@ private struct AlbumPickerSheet: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.phosphorBackground.ignoresSafeArea()
-                List {
-                    ForEach(viewModel.albums) { album in
-                        Button {
-                            Task { await add(to: album) }
-                        } label: {
-                            HStack {
-                                Text(album.albumName)
-                                    .foregroundStyle(.phosphorPrimary)
-                                Spacer()
-                                Text("\(album.assetCount)")
-                                    .foregroundStyle(.phosphorSecondary)
-                            }
-                        }
-                        .listRowBackground(Color.phosphorSurface)
+            albumList
+                .navigationTitle("Add to Album")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Cancel") { dismiss() }
+                            .foregroundStyle(Color.phosphorPrimary)
                     }
                 }
-                .scrollContentBackground(.hidden)
-                .disabled(working)
-            }
-            .navigationTitle("Add to Album")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(.phosphorPrimary)
-                }
-            }
-            .task { await viewModel.loadAlbums() }
+                .task { await viewModel.loadAlbums() }
         }
         .preferredColorScheme(.dark)
+    }
+
+    private var albumList: some View {
+        ZStack {
+            Color.phosphorBackground.ignoresSafeArea()
+            List {
+                ForEach(viewModel.albums) { album in
+                    albumRow(album)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .disabled(working)
+        }
+    }
+
+    private func albumRow(_ album: ImmichAlbum) -> some View {
+        Button {
+            Task { await add(to: album) }
+        } label: {
+            HStack {
+                Text(album.albumName)
+                    .foregroundStyle(Color.phosphorPrimary)
+                Spacer()
+                Text("\(album.assetCount)")
+                    .foregroundStyle(Color.phosphorSecondary)
+            }
+        }
+        .listRowBackground(Color.phosphorSurface)
     }
 
     private func add(to album: ImmichAlbum) async {

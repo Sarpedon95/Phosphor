@@ -71,6 +71,7 @@ struct BackupView: View {
         }
     }
 
+    @ViewBuilder
     private var statusSection: some View {
         Section {
             row("Local Assets", value: "\(localAssetCount)")
@@ -109,6 +110,7 @@ struct BackupView: View {
         }
     }
 
+    @ViewBuilder
     private var controlsSection: some View {
         Section {
             if manager.progress.isRunning {
@@ -131,6 +133,7 @@ struct BackupView: View {
         }
     }
 
+    @ViewBuilder
     private var albumsSection: some View {
         Section {
             if albums.isEmpty {
@@ -157,6 +160,7 @@ struct BackupView: View {
         }
     }
 
+    @ViewBuilder
     private var settingsSection: some View {
         Section {
             Toggle(isOn: $wifiOnly) {
@@ -178,6 +182,7 @@ struct BackupView: View {
         }
     }
 
+    @ViewBuilder
     private var freeUpSection: some View {
         Section {
             Button(role: .destructive) {

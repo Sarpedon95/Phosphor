@@ -40,6 +40,7 @@ struct ProfileView: View {
 
     // MARK: - Server
 
+    @ViewBuilder
     private var serverSection: some View {
         Section("Server") {
             NavigationLink {
@@ -188,6 +189,7 @@ struct ProfileView: View {
 
     // MARK: - Appearance
 
+    @ViewBuilder
     private var appearanceSection: some View {
         Section("Appearance") {
             HStack {
@@ -209,6 +211,7 @@ struct ProfileView: View {
 
     // MARK: - Safety
 
+    @ViewBuilder
     private var safetySection: some View {
         Section {
             Toggle(isOn: $isReadOnly) {
@@ -245,6 +248,7 @@ struct ProfileView: View {
 
     // MARK: - About
 
+    @ViewBuilder
     private var aboutSection: some View {
         Section("About") {
             HStack {
@@ -273,6 +277,7 @@ struct ProfileView: View {
 
     // MARK: - Library management
 
+    @ViewBuilder
     private var librarySection: some View {
         Section("Library") {
             libraryLink("Favorites", "heart") { FavoritesView() }
@@ -299,6 +304,7 @@ struct ProfileView: View {
         .accessibilityHint("Opens \(title).")
     }
 
+    @ViewBuilder
     private var wordmarkSection: some View {
         Section {
             HStack {

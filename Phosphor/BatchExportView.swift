@@ -96,6 +96,7 @@ struct BatchExportView: View {
         .scrollContentBackground(.hidden)
     }
 
+    @ViewBuilder
     private var formatSection: some View {
         Section {
             Picker("Format", selection: $format) {
@@ -118,6 +119,7 @@ struct BatchExportView: View {
         }
     }
 
+    @ViewBuilder
     private var sizeSection: some View {
         Section {
             Picker("Size", selection: $size) {
@@ -130,6 +132,7 @@ struct BatchExportView: View {
         }
     }
 
+    @ViewBuilder
     private var destinationSection: some View {
         Section {
             Picker("Destination", selection: $destination) {
