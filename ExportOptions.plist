@@ -15,7 +15,19 @@
     <key>compileBitcode</key>
     <false/>
     <key>signingStyle</key>
-    <string>automatic</string>
+    <string>manual</string>
+    <!-- Provisioning profile mapping: all targets use the profile from PROVISIONING_PROFILE_SPECIFIER secret.
+         The CI installs this as Phosphor.mobileprovision; the value below should match the
+         "Name" field inside that provisioning profile (often displayed as the profile name in Xcode). -->
+    <key>provisioningProfileMapping</key>
+    <dict>
+        <key>com.sarpedon.phosphor</key>
+        <string>Phosphor Distribution</string>
+        <key>com.sarpedon.phosphor.widgets</key>
+        <string>Phosphor Distribution</string>
+        <key>com.sarpedon.phosphor.liveactivity</key>
+        <string>Phosphor Distribution</string>
+    </dict>
     <key>stripSwiftSymbols</key>
     <true/>
     <key>destination</key>
