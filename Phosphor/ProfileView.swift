@@ -42,79 +42,82 @@ struct ProfileView: View {
 
     @ViewBuilder
     private var serverSection: some View {
-        Section("Server") {
-            NavigationLink {
-                ServerProfilesView()
-            } label: {
-                HStack {
-                    Label("Servers", systemImage: "server.rack")
-                        .foregroundStyle(.phosphorAccent)
-                    Spacer()
-                    Text(activeServerName)
-                        .font(Typography.caption)
-                        .foregroundStyle(.phosphorSecondary)
-                        .lineLimit(1)
-                }
-            }
-            .listRowBackground(Color.phosphorSurface)
-            .accessibilityHint("Switch, add, or remove server profiles.")
+        Section("Server") { serverSectionContent }
+    }
 
-            TextField("https://immich.example.com", text: $viewModel.serverURL)
-                .textContentType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
-                .listRowBackground(Color.phosphorSurface)
-                .accessibilityLabel("Server URL")
-
+    @ViewBuilder
+    private var serverSectionContent: some View {
+        NavigationLink {
+            ServerProfilesView()
+        } label: {
             HStack {
-                Group {
-                    if showAPIKey {
-                        TextField("API key", text: $viewModel.apiKey)
-                    } else {
-                        SecureField("API key", text: $viewModel.apiKey)
-                    }
-                }
-                .textContentType(.password)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .accessibilityLabel("API key")
-
-                Button {
-                    showAPIKey.toggle()
-                } label: {
-                    Image(systemName: showAPIKey ? "eye.slash" : "eye")
-                        .foregroundStyle(.phosphorSecondary)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(showAPIKey ? "Hide API key" : "Show API key")
+                Label("Servers", systemImage: "server.rack")
+                    .foregroundStyle(.phosphorAccent)
+                Spacer()
+                Text(activeServerName)
+                    .font(Typography.caption)
+                    .foregroundStyle(.phosphorSecondary)
+                    .lineLimit(1)
             }
+        }
+        .listRowBackground(Color.phosphorSurface)
+        .accessibilityHint("Switch, add, or remove server profiles.")
+
+        TextField("https://immich.example.com", text: $viewModel.serverURL)
+            .textContentType(.URL)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .keyboardType(.URL)
             .listRowBackground(Color.phosphorSurface)
+            .accessibilityLabel("Server URL")
+
+        HStack {
+            Group {
+                if showAPIKey {
+                    TextField("API key", text: $viewModel.apiKey)
+                } else {
+                    SecureField("API key", text: $viewModel.apiKey)
+                }
+            }
+            .textContentType(.password)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .accessibilityLabel("API key")
 
             Button {
-                Task { await viewModel.testConnection() }
+                showAPIKey.toggle()
             } label: {
-                HStack {
-                    if viewModel.isTestingConnection {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.phosphorPrimary)
-                        Text("Testing…")
-                    } else {
-                        Image(systemName: "antenna.radiowaves.left.and.right")
-                        Text("Test Connection")
-                    }
-                    Spacer()
-                }
-                .foregroundStyle(.phosphorPrimary)
+                Image(systemName: showAPIKey ? "eye.slash" : "eye")
+                    .foregroundStyle(.phosphorSecondary)
             }
-            .disabled(viewModel.isTestingConnection)
-            .listRowBackground(Color.phosphorSurface)
-            .accessibilityHint("Verifies the server URL and API key reach the Immich server.")
+            .buttonStyle(.borderless)
+            .accessibilityLabel(showAPIKey ? "Hide API key" : "Show API key")
+        }
+        .listRowBackground(Color.phosphorSurface)
 
-            if let result = viewModel.connectionResult {
-                connectionResultRow(result)
+        Button {
+            Task { await viewModel.testConnection() }
+        } label: {
+            HStack {
+                if viewModel.isTestingConnection {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.phosphorPrimary)
+                    Text("Testing…")
+                } else {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                    Text("Test Connection")
+                }
+                Spacer()
             }
+            .foregroundStyle(.phosphorPrimary)
+        }
+        .disabled(viewModel.isTestingConnection)
+        .listRowBackground(Color.phosphorSurface)
+        .accessibilityHint("Verifies the server URL and API key reach the Immich server.")
+
+        if let result = viewModel.connectionResult {
+            connectionResultRow(result)
         }
     }
 
