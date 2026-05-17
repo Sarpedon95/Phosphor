@@ -586,7 +586,7 @@ struct PhotoDetailView: View {
         }
         do {
             try await PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAssetFromImage(image)
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
             }
             HapticManager.notify(.success)
         } catch {
@@ -612,7 +612,7 @@ struct PhotoDetailView: View {
         }
         do {
             try await PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAssetFromImage(image)
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
             }
             if let settings = URL(string: "App-Prefs:Wallpaper") {
                 await UIApplication.shared.open(settings)

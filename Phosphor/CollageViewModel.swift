@@ -108,7 +108,7 @@ final class CollageViewModel: ObservableObject {
         guard status == .authorized || status == .limited else { return false }
         do {
             try await PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAssetFromImage(image)
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
             }
             return true
         } catch {

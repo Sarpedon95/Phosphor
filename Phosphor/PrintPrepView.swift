@@ -265,7 +265,7 @@ struct PrintPrepView: View {
                 if status == .authorized || status == .limited {
                     do {
                         try await PHPhotoLibrary.shared().performChanges {
-                            PHAssetChangeRequest.creationRequestForAssetFromImage(saved)
+                            PHAssetChangeRequest.creationRequestForAsset(from: saved)
                         }
                         statusText = "Saved to Camera Roll at \(Int(dpi)) DPI."
                         HapticManager.notification(.success)

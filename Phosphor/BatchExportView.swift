@@ -294,7 +294,7 @@ struct BatchExportView: View {
             if let data = try? Data(contentsOf: url), let image = UIImage(data: data) {
                 do {
                     try await PHPhotoLibrary.shared().performChanges {
-                        PHAssetChangeRequest.creationRequestForAssetFromImage(image)
+                        PHAssetChangeRequest.creationRequestForAsset(from: image)
                     }
                 } catch {
                     progressText = "Failed to save image."
