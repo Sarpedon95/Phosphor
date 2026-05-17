@@ -161,6 +161,7 @@ struct TimelineGridView<Header: View>: View {
         }
     }
 
+    @ViewBuilder
     private var gridBody: some View {
         ScrollView {
             header
@@ -185,6 +186,7 @@ struct TimelineGridView<Header: View>: View {
         }
     }
 
+    @ViewBuilder
     private var listBody: some View {
         ScrollView {
             header
@@ -218,6 +220,7 @@ struct TimelineGridView<Header: View>: View {
         }
     }
 
+    @ViewBuilder
     private var justifiedBody: some View {
         ScrollView {
             header

@@ -86,16 +86,7 @@ struct AddServerView: View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
             Text("API Key").font(Typography.caption).foregroundStyle(.phosphorSecondary)
             HStack {
-                Group {
-                    if showAPIKey {
-                        TextField("Paste API key", text: $apiKey)
-                    } else {
-                        SecureField("Paste API key", text: $apiKey)
-                    }
-                }
-                .textContentType(.password)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+                apiKeyInput
                 Button {
                     showAPIKey.toggle()
                 } label: {
@@ -109,6 +100,21 @@ struct AddServerView: View {
             .background(Color.phosphorSurface, in: RoundedRectangle(cornerRadius: CornerRadius.small))
             .foregroundStyle(.phosphorAccent)
             .onChange(of: apiKey) { _, _ in testResult = nil }
+        }
+    }
+
+    @ViewBuilder
+    private var apiKeyInput: some View {
+        if showAPIKey {
+            TextField("Paste API key", text: $apiKey)
+                .textContentType(.password)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+        } else {
+            SecureField("Paste API key", text: $apiKey)
+                .textContentType(.password)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
         }
     }
 

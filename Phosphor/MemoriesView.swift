@@ -8,43 +8,44 @@ struct MemoriesView: View {
     @State private var selected: ImmichMemory?
 
     var body: some View {
-        Group {
-            if memories.isEmpty {
-                EmptyView()
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Spacing.m) {
-                        ForEach(memories) { memory in
-                            Button {
-                                HapticManager.impact(.light)
-                                selected = memory
-                            } label: {
-                                MemoryCard(memory: memory)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("\(memory.title), \(memory.assets.count) photos")
-                            .accessibilityHint("Opens a slideshow of this memory.")
-                        }
-                    }
-                    .padding(.horizontal, Spacing.m)
-                    .padding(.vertical, Spacing.s)
+        memoriesContent
+            .task {
+                guard memories.isEmpty else { return }
+                do {
+                    let fetched = try await ImmichAPI.shared.fetchMemories()
+                    memories = fetched.filter { !$0.assets.isEmpty }
+                } catch {
+                    Logger(subsystem: "com.sarpedon.phosphor", category: "memories")
+                        .error("Memories load failed: \(error.localizedDescription, privacy: .public)")
                 }
             }
-        }
-        .task {
-            guard memories.isEmpty else { return }
-            do {
-                let fetched = try await ImmichAPI.shared.fetchMemories()
-                memories = fetched.filter { !$0.assets.isEmpty }
-            } catch {
-                // Memories are a decorative strip — log and hide silently
-                // rather than disrupt the main timeline with an error banner.
-                Logger(subsystem: "com.sarpedon.phosphor", category: "memories")
-                    .error("Memories load failed: \(error.localizedDescription, privacy: .public)")
+            .fullScreenCover(item: $selected) { memory in
+                MemoryDetailView(memory: memory)
             }
-        }
-        .fullScreenCover(item: $selected) { memory in
-            MemoryDetailView(memory: memory)
+    }
+
+    @ViewBuilder
+    private var memoriesContent: some View {
+        if memories.isEmpty {
+            EmptyView()
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.m) {
+                    ForEach(memories) { memory in
+                        Button {
+                            HapticManager.impact(.light)
+                            selected = memory
+                        } label: {
+                            MemoryCard(memory: memory)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(memory.title), \(memory.assets.count) photos")
+                        .accessibilityHint("Opens a slideshow of this memory.")
+                    }
+                }
+                .padding(.horizontal, Spacing.m)
+                .padding(.vertical, Spacing.s)
+            }
         }
     }
 }

@@ -13,29 +13,32 @@ struct HistogramView: View {
     @State private var computeTask: Task<Void, Never>?
 
     var body: some View {
-        Group {
-            switch mode {
-            case .hidden:
-                Color.clear.frame(height: 0)
-            case .rgb, .luminance:
-                Canvas { ctx, size in
-                    guard let bins else { return }
-                    if mode == .rgb {
-                        draw(bins.red, color: .red, size: size, ctx: &ctx)
-                        draw(bins.green, color: .green, size: size, ctx: &ctx)
-                        draw(bins.blue, color: .blue, size: size, ctx: &ctx)
-                    } else {
-                        draw(bins.luminance, color: .white, size: size, ctx: &ctx)
-                    }
+        histogramDisplay
+            .contentShape(Rectangle())
+            .onTapGesture { cycleMode() }
+            .animation(.easeInOut(duration: 0.2), value: mode == .hidden)
+            .task(id: image) { scheduleCompute() }
+    }
+
+    @ViewBuilder
+    private var histogramDisplay: some View {
+        switch mode {
+        case .hidden:
+            Color.clear.frame(height: 0)
+        case .rgb, .luminance:
+            Canvas { ctx, size in
+                guard let bins else { return }
+                if mode == .rgb {
+                    draw(bins.red, color: .red, size: size, ctx: &ctx)
+                    draw(bins.green, color: .green, size: size, ctx: &ctx)
+                    draw(bins.blue, color: .blue, size: size, ctx: &ctx)
+                } else {
+                    draw(bins.luminance, color: .white, size: size, ctx: &ctx)
                 }
-                .frame(height: 80)
-                .background(Color.black.opacity(0.6))
             }
+            .frame(height: 80)
+            .background(Color.black.opacity(0.6))
         }
-        .contentShape(Rectangle())
-        .onTapGesture { cycleMode() }
-        .animation(.easeInOut(duration: 0.2), value: mode == .hidden)
-        .task(id: image) { scheduleCompute() }
     }
 
     private func cycleMode() {

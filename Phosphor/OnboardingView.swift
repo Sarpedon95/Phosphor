@@ -65,20 +65,7 @@ struct OnboardingView: View {
 
             field {
                 HStack(spacing: Spacing.s) {
-                    Group {
-                        if showAPIKey {
-                            TextField("API Key", text: $viewModel.apiKey)
-                        } else {
-                            SecureField("API Key", text: $viewModel.apiKey)
-                        }
-                    }
-                    .textContentType(.password)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .focused($focused, equals: .apiKey)
-                    .submitLabel(.go)
-                    .onSubmit { Task { await connect() } }
-
+                    apiKeyField
                     Button {
                         showAPIKey.toggle()
                     } label: {
@@ -93,6 +80,27 @@ struct OnboardingView: View {
         }
         .disabled(viewModel.isTestingConnection)
         .modifier(ShakeEffect(amount: shake))
+    }
+
+    @ViewBuilder
+    private var apiKeyField: some View {
+        if showAPIKey {
+            TextField("API Key", text: $viewModel.apiKey)
+                .textContentType(.password)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($focused, equals: .apiKey)
+                .submitLabel(.go)
+                .onSubmit { Task { await connect() } }
+        } else {
+            SecureField("API Key", text: $viewModel.apiKey)
+                .textContentType(.password)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($focused, equals: .apiKey)
+                .submitLabel(.go)
+                .onSubmit { Task { await connect() } }
+        }
     }
 
     @ViewBuilder

@@ -116,6 +116,7 @@ private struct CollageSettingsSheet: View {
         .scrollContentBackground(.hidden)
     }
 
+    @ViewBuilder
     private var spacingSection: some View {
         Section {
             VStack(alignment: .leading) {
@@ -143,6 +144,7 @@ private struct CollageSettingsSheet: View {
         }
     }
 
+    @ViewBuilder
     private var backgroundSection: some View {
         Section {
             ColorPicker("Background colour", selection: $viewModel.backgroundColor, supportsOpacity: false)
@@ -152,6 +154,7 @@ private struct CollageSettingsSheet: View {
         }
     }
 
+    @ViewBuilder
     private var blendSection: some View {
         Section {
             Picker("Blend mode", selection: $viewModel.blendMode) {
@@ -166,6 +169,7 @@ private struct CollageSettingsSheet: View {
         }
     }
 
+    @ViewBuilder
     private var canvasSection: some View {
         Section {
             Picker("Aspect", selection: $viewModel.canvasAspect) {

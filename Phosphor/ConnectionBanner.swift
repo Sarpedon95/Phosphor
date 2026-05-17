@@ -13,19 +13,22 @@ struct ConnectionBanner: View {
     private static let debounceSeconds: UInt64 = 3
 
     var body: some View {
-        Group {
-            if isVisible {
-                content
-                    .transition(.move(edge: .top).combined(with: .opacity))
+        bannerContent
+            .animation(.easeInOut(duration: 0.25), value: isVisible)
+            .onAppear { reevaluate(connection.isConnected, configured: connection.isConfigured) }
+            .onChange(of: connection.isConnected) { _, connected in
+                reevaluate(connected, configured: connection.isConfigured)
             }
-        }
-        .animation(.easeInOut(duration: 0.25), value: isVisible)
-        .onAppear { reevaluate(connection.isConnected, configured: connection.isConfigured) }
-        .onChange(of: connection.isConnected) { _, connected in
-            reevaluate(connected, configured: connection.isConfigured)
-        }
-        .onChange(of: connection.isConfigured) { _, configured in
-            reevaluate(connection.isConnected, configured: configured)
+            .onChange(of: connection.isConfigured) { _, configured in
+                reevaluate(connection.isConnected, configured: configured)
+            }
+    }
+
+    @ViewBuilder
+    private var bannerContent: some View {
+        if isVisible {
+            content
+                .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 

@@ -144,28 +144,27 @@ struct MapView: View {
         .accessibilityElement(children: .combine)
     }
 
+    @ViewBuilder
     private var nearbyTray: some View {
         let nearby = viewModel.nearby(to: visibleRegion)
-        return Group {
-            if !nearby.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Spacing.s) {
-                        ForEach(nearby) { marker in
-                            Button {
-                                Task { await openAsset(marker.id) }
-                            } label: {
-                                MapThumbnail(assetId: marker.id)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(marker.city.map { "Photo in \($0)" } ?? "Photo")
+        if !nearby.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.s) {
+                    ForEach(nearby) { marker in
+                        Button {
+                            Task { await openAsset(marker.id) }
+                        } label: {
+                            MapThumbnail(assetId: marker.id)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(marker.city.map { "Photo in \($0)" } ?? "Photo")
                     }
-                    .padding(.horizontal, Spacing.m)
-                    .padding(.vertical, Spacing.m)
                 }
-                .frame(height: 120)
-                .background(.ultraThinMaterial)
+                .padding(.horizontal, Spacing.m)
+                .padding(.vertical, Spacing.m)
             }
+            .frame(height: 120)
+            .background(.ultraThinMaterial)
         }
     }
 
