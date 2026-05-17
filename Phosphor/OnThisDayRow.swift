@@ -12,34 +12,37 @@ struct OnThisDayRow: View {
     }()
 
     var body: some View {
-        Group {
-            if assets.isEmpty {
-                EmptyView()
-            } else {
-                VStack(alignment: .leading, spacing: Spacing.sm) {
-                    Text("On This Day")
-                        .font(Typography.captionBold)
-                        .foregroundStyle(.phosphorAccent)
-                        .padding(.horizontal, Spacing.md)
+        content
+            .task(id: date) { await load() }
+            .fullScreenCover(item: $open) { sel in
+                PhotoDetailView(assets: sel.assets, selectedIndex: sel.index)
+            }
+    }
 
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: Spacing.sm) {
-                            ForEach(assets) { asset in
-                                OnThisDayCell(asset: asset, yearText: Self.yearFormatter.string(from: asset.localDateTime)) {
-                                    if let i = assets.firstIndex(where: { $0.id == asset.id }) {
-                                        open = PhotoSelection(assets: assets, index: i)
-                                    }
+    @ViewBuilder
+    private var content: some View {
+        if assets.isEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                Text("On This Day")
+                    .font(Typography.captionBold)
+                    .foregroundStyle(.phosphorAccent)
+                    .padding(.horizontal, Spacing.md)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Spacing.sm) {
+                        ForEach(assets) { asset in
+                            OnThisDayCell(asset: asset, yearText: Self.yearFormatter.string(from: asset.localDateTime)) {
+                                if let i = assets.firstIndex(where: { $0.id == asset.id }) {
+                                    open = PhotoSelection(assets: assets, index: i)
                                 }
                             }
                         }
-                        .padding(.horizontal, Spacing.md)
                     }
+                    .padding(.horizontal, Spacing.md)
                 }
             }
-        }
-        .task(id: date) { await load() }
-        .fullScreenCover(item: $open) { sel in
-            PhotoDetailView(assets: sel.assets, selectedIndex: sel.index)
         }
     }
 

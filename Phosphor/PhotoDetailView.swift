@@ -993,7 +993,7 @@ private struct ExifSheet: View {
                     }
                 }
 
-                Section("Capture") {
+                Section {
                     if hasCaptureMetadata {
                         row("Camera", camera)
                         row("Lens", asset.exifInfo?.lensModel)
@@ -1007,22 +1007,28 @@ private struct ExifSheet: View {
                             .foregroundStyle(.phosphorSecondary)
                             .listRowBackground(Color.phosphorSurface)
                     }
+                } header: {
+                    Text("Capture")
                 }
 
-                Section("File") {
+                Section {
                     row("Name", asset.originalFileName)
                     row("Taken", Self.dateFormatter.string(from: asset.localDateTime))
                     row("Location", [asset.exifInfo?.city, asset.exifInfo?.state, asset.exifInfo?.country]
                         .compactMap { $0 }
                         .joined(separator: ", ")
                         .nilIfEmpty)
+                } header: {
+                    Text("File")
                 }
 
                 if let histogram {
-                    Section("Histogram") {
-                        HistogramView(data: histogram)
+                    Section {
+                        InlineHistogramView(data: histogram)
                             .listRowInsets(EdgeInsets())
                             .listRowBackground(Color.phosphorSurface)
+                    } header: {
+                        Text("Histogram")
                     }
                 }
 
@@ -1097,6 +1103,36 @@ private struct ExifSheet: View {
 
 private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+/// Compact RGB histogram visualization used in the photo info sheet. Reads
+/// pre-computed bins rather than recomputing from a UIImage.
+private struct InlineHistogramView: View {
+    let data: Histogram.Data
+
+    var body: some View {
+        Canvas { ctx, size in
+            draw(data.red, color: .red, size: size, ctx: &ctx)
+            draw(data.green, color: .green, size: size, ctx: &ctx)
+            draw(data.blue, color: .blue, size: size, ctx: &ctx)
+        }
+        .frame(height: 80)
+        .background(Color.black.opacity(0.6))
+    }
+
+    private func draw(_ bins: [UInt], color: Color, size: CGSize, ctx: inout GraphicsContext) {
+        let maxV = max(bins.max() ?? 1, 1)
+        var path = Path()
+        path.move(to: CGPoint(x: 0, y: size.height))
+        let step = size.width / CGFloat(max(bins.count, 1))
+        for i in 0..<bins.count {
+            let h = size.height * CGFloat(Double(bins[i]) / Double(maxV))
+            path.addLine(to: CGPoint(x: CGFloat(i) * step, y: size.height - h))
+        }
+        path.addLine(to: CGPoint(x: size.width, y: size.height))
+        path.closeSubpath()
+        ctx.fill(path, with: .color(color.opacity(0.4)))
+    }
 }
 
 // MARK: - Document picker bridge

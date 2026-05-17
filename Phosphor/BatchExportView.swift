@@ -62,66 +62,7 @@ struct BatchExportView: View {
         NavigationStack {
             ZStack {
                 Color.phosphorBackground.ignoresSafeArea()
-                Form {
-                    Section("Format") {
-                        Picker("Format", selection: $format) {
-                            ForEach(Format.allCases) { Text($0.rawValue).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-                        .listRowBackground(Color.phosphorSurface)
-                        if format == .jpeg {
-                            VStack(alignment: .leading) {
-                                Text("Quality \(Int(jpegQuality))%")
-                                    .font(Typography.caption)
-                                    .foregroundStyle(.phosphorSecondary)
-                                Slider(value: $jpegQuality, in: 60...100, step: 1)
-                                    .tint(.phosphorAccent)
-                            }
-                            .listRowBackground(Color.phosphorSurface)
-                        }
-                    }
-                    Section("Size") {
-                        Picker("Size", selection: $size) {
-                            ForEach(SizeOption.allCases) { Text($0.rawValue).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-                        .listRowBackground(Color.phosphorSurface)
-                    }
-                    Section("Destination") {
-                        Picker("Destination", selection: $destination) {
-                            ForEach(Destination.allCases) { Text($0.rawValue).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-                        .listRowBackground(Color.phosphorSurface)
-                    }
-                    Section {
-                        if isExporting {
-                            VStack(alignment: .leading, spacing: Spacing.sm) {
-                                ProgressView()
-                                    .tint(.phosphorAccent)
-                                Text(progressText)
-                                    .font(Typography.caption)
-                                    .foregroundStyle(.phosphorSecondary)
-                                Button("Cancel") {
-                                    exportTask?.cancel()
-                                }
-                                .foregroundStyle(.phosphorDestructive)
-                            }
-                            .listRowBackground(Color.phosphorSurface)
-                        } else {
-                            Button {
-                                exportTask = Task { await runExport() }
-                            } label: {
-                                Text("Export \(assets.count) Photos")
-                                    .font(Typography.headline)
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .listRowBackground(Color.phosphorAccent)
-                            .foregroundStyle(.black)
-                        }
-                    }
-                }
-                .scrollContentBackground(.hidden)
+                formContent
             }
             .navigationTitle("Export")
             .navigationBarTitleDisplayMode(.inline)
@@ -143,6 +84,100 @@ struct BatchExportView: View {
             ActivityShareSheet(items: exportedURLs)
         }
         .preferredColorScheme(.dark)
+    }
+
+    private var formContent: some View {
+        Form {
+            formatSection
+            sizeSection
+            destinationSection
+            actionSection
+        }
+        .scrollContentBackground(.hidden)
+    }
+
+    private var formatSection: some View {
+        Section {
+            Picker("Format", selection: $format) {
+                ForEach(Format.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.phosphorSurface)
+            if format == .jpeg {
+                VStack(alignment: .leading) {
+                    Text("Quality \(Int(jpegQuality))%")
+                        .font(Typography.caption)
+                        .foregroundStyle(.phosphorSecondary)
+                    Slider(value: $jpegQuality, in: 60...100, step: 1)
+                        .tint(.phosphorAccent)
+                }
+                .listRowBackground(Color.phosphorSurface)
+            }
+        } header: {
+            Text("Format")
+        }
+    }
+
+    private var sizeSection: some View {
+        Section {
+            Picker("Size", selection: $size) {
+                ForEach(SizeOption.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.phosphorSurface)
+        } header: {
+            Text("Size")
+        }
+    }
+
+    private var destinationSection: some View {
+        Section {
+            Picker("Destination", selection: $destination) {
+                ForEach(Destination.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.phosphorSurface)
+        } header: {
+            Text("Destination")
+        }
+    }
+
+    @ViewBuilder
+    private var actionSection: some View {
+        Section {
+            if isExporting {
+                exportingRow
+            } else {
+                exportButton
+            }
+        }
+    }
+
+    private var exportingRow: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            ProgressView()
+                .tint(.phosphorAccent)
+            Text(progressText)
+                .font(Typography.caption)
+                .foregroundStyle(.phosphorSecondary)
+            Button("Cancel") {
+                exportTask?.cancel()
+            }
+            .foregroundStyle(.phosphorDestructive)
+        }
+        .listRowBackground(Color.phosphorSurface)
+    }
+
+    private var exportButton: some View {
+        Button {
+            exportTask = Task { await runExport() }
+        } label: {
+            Text("Export \(assets.count) Photos")
+                .font(Typography.headline)
+                .frame(maxWidth: .infinity)
+        }
+        .listRowBackground(Color.phosphorAccent)
+        .foregroundStyle(.black)
     }
 
     private func cleanupPending() {

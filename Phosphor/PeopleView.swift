@@ -8,50 +8,60 @@ struct PeopleView: View {
     @State private var people: [Person] = []
 
     var body: some View {
-        Group {
-            if people.isEmpty {
-                EmptyView()
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: Spacing.m + 2) {
-                        ForEach(people) { person in
-                            NavigationLink(value: person) {
-                                VStack(spacing: Spacing.xs + 2) {
-                                    PersonAvatar(personId: person.id)
-                                        .frame(width: 64, height: 64)
-                                    Text(person.displayName)
-                                        .font(Typography.caption)
-                                        .foregroundStyle(.phosphorPrimary)
-                                        .lineLimit(1)
-                                        .frame(width: 68)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Photos of \(person.displayName)")
-                            .accessibilityAddTraits(.isLink)
-                            .contextMenu {
-                                Button {
-                                    Task { await hide(person) }
-                                } label: {
-                                    Label("Hide", systemImage: "eye.slash")
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, Spacing.l)
-                    .padding(.vertical, Spacing.s)
+        content
+            .task {
+                guard people.isEmpty else { return }
+                do {
+                    let fetched = try await ImmichAPI.shared.fetchPeople()
+                    people = fetched.filter { !$0.name.isEmpty }
+                } catch {
+                    Logger(subsystem: "com.sarpedon.phosphor", category: "people")
+                        .error("People load failed: \(error.localizedDescription, privacy: .public)")
                 }
             }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if people.isEmpty {
+            EmptyView()
+        } else {
+            peopleScrollView
         }
-        .task {
-            guard people.isEmpty else { return }
-            do {
-                let fetched = try await ImmichAPI.shared.fetchPeople()
-                people = fetched.filter { !$0.name.isEmpty }
-            } catch {
-                // People strip is decorative — log and hide silently.
-                Logger(subsystem: "com.sarpedon.phosphor", category: "people")
-                    .error("People load failed: \(error.localizedDescription, privacy: .public)")
+    }
+
+    private var peopleScrollView: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Spacing.m + 2) {
+                ForEach(people) { person in
+                    personLink(person)
+                }
+            }
+            .padding(.horizontal, Spacing.l)
+            .padding(.vertical, Spacing.s)
+        }
+    }
+
+    private func personLink(_ person: Person) -> some View {
+        NavigationLink(value: person) {
+            VStack(spacing: Spacing.xs + 2) {
+                PersonAvatar(personId: person.id)
+                    .frame(width: 64, height: 64)
+                Text(person.displayName)
+                    .font(Typography.caption)
+                    .foregroundStyle(.phosphorPrimary)
+                    .lineLimit(1)
+                    .frame(width: 68)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Photos of \(person.displayName)")
+        .accessibilityAddTraits(.isLink)
+        .contextMenu {
+            Button {
+                Task { await hide(person) }
+            } label: {
+                Label("Hide", systemImage: "eye.slash")
             }
         }
     }

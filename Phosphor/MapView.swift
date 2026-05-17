@@ -50,59 +50,76 @@ struct MapView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Map(position: $cameraPosition) {
-                ForEach(viewModel.markers) { marker in
-                    Annotation(
-                        marker.city ?? "",
-                        coordinate: CLLocationCoordinate2D(latitude: marker.lat, longitude: marker.lon)
-                    ) {
-                        Button {
-                            Task { await openAsset(marker.id) }
-                        } label: {
-                            Image(systemName: "photo.circle.fill")
-                                .font(.system(size: 26))
-                                .foregroundStyle(.phosphorPrimary)
-                                .background(Circle().fill(.black.opacity(0.4)))
-                        }
-                        .accessibilityLabel(marker.city.map { "Photo in \($0)" } ?? "Photo location")
-                    }
-                }
-            }
-            .mapStyle(.hybrid(elevation: .realistic))
-            .ignoresSafeArea()
-            .onMapCameraChange { context in
-                visibleRegion = context.region
-            }
-
+            mapLayer
             nearbyTray
         }
         .overlay(alignment: .top) {
-            if viewModel.isLoading {
-                ProgressView()
-                    .tint(.phosphorPrimary)
-                    .padding(Spacing.s)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.top, Spacing.s)
-            }
+            loadingOverlay
         }
         .overlay {
-            if let error = viewModel.error, viewModel.markers.isEmpty {
-                statusCard(
-                    symbol: "exclamationmark.triangle",
-                    title: error.localizedDescription,
-                    showRetry: true
-                )
-            } else if !viewModel.isLoading && viewModel.markers.isEmpty {
-                statusCard(
-                    symbol: "mappin.slash",
-                    title: "No photos with location data",
-                    showRetry: false
-                )
-            }
+            statusOverlay
         }
         .task { await viewModel.load() }
         .fullScreenCover(item: $selectedAsset) { sel in
             PhotoDetailView(assets: sel.assets, selectedIndex: sel.index)
+        }
+    }
+
+    private var mapLayer: some View {
+        Map(position: $cameraPosition) {
+            ForEach(viewModel.markers) { marker in
+                Annotation(
+                    marker.city ?? "",
+                    coordinate: CLLocationCoordinate2D(latitude: marker.lat, longitude: marker.lon)
+                ) {
+                    markerButton(for: marker)
+                }
+            }
+        }
+        .mapStyle(.hybrid(elevation: .realistic))
+        .ignoresSafeArea()
+        .onMapCameraChange { context in
+            visibleRegion = context.region
+        }
+    }
+
+    private func markerButton(for marker: MapMarker) -> some View {
+        Button {
+            Task { await openAsset(marker.id) }
+        } label: {
+            Image(systemName: "photo.circle.fill")
+                .font(.system(size: 26))
+                .foregroundStyle(.phosphorPrimary)
+                .background(Circle().fill(.black.opacity(0.4)))
+        }
+        .accessibilityLabel(marker.city.map { "Photo in \($0)" } ?? "Photo location")
+    }
+
+    @ViewBuilder
+    private var loadingOverlay: some View {
+        if viewModel.isLoading {
+            ProgressView()
+                .tint(.phosphorPrimary)
+                .padding(Spacing.s)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(.top, Spacing.s)
+        }
+    }
+
+    @ViewBuilder
+    private var statusOverlay: some View {
+        if let error = viewModel.error, viewModel.markers.isEmpty {
+            statusCard(
+                symbol: "exclamationmark.triangle",
+                title: error.localizedDescription,
+                showRetry: true
+            )
+        } else if !viewModel.isLoading && viewModel.markers.isEmpty {
+            statusCard(
+                symbol: "mappin.slash",
+                title: "No photos with location data",
+                showRetry: false
+            )
         }
     }
 

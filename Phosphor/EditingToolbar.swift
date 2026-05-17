@@ -73,62 +73,79 @@ struct EditingToolbar: View {
 
     private var presetsPanel: some View {
         VStack {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Spacing.md) {
-                    ForEach(viewModel.allPresets) { preset in
-                        Button {
-                            viewModel.applyPreset(preset, intensity: presetIntensity)
-                        } label: {
-                            VStack(spacing: 4) {
-                                RoundedRectangle(cornerRadius: CornerRadius.small)
-                                    .fill(Color.phosphorSurface)
-                                    .frame(width: 80, height: 80)
-                                    .overlay {
-                                        Image(systemName: "photo")
-                                            .foregroundStyle(.phosphorSecondary)
-                                    }
-                                    .overlay {
-                                        if viewModel.selectedPreset == preset.name {
-                                            RoundedRectangle(cornerRadius: CornerRadius.small)
-                                                .strokeBorder(Color.phosphorAccent, lineWidth: 2)
-                                        }
-                                    }
-                                Text(preset.name)
-                                    .font(Typography.caption)
-                                    .foregroundStyle(.phosphorAccent)
-                            }
-                        }
-                        .contextMenu {
-                            if !preset.isBuiltIn {
-                                Button(role: .destructive) {
-                                    viewModel.deleteUserPreset(preset)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, Spacing.md)
-            }
-            if viewModel.selectedPreset != nil {
-                VStack(alignment: .leading) {
-                    Text("Intensity \(Int(presetIntensity * 100))%")
-                        .font(Typography.caption)
-                        .foregroundStyle(.phosphorSecondary)
-                    Slider(value: $presetIntensity, in: 0...1)
-                        .tint(.phosphorAccent)
-                        .onChange(of: presetIntensity) { _, _ in
-                            if let name = viewModel.selectedPreset,
-                               let p = viewModel.allPresets.first(where: { $0.name == name }) {
-                                viewModel.applyPreset(p, intensity: presetIntensity)
-                            }
-                        }
-                }
-                .padding(.horizontal, Spacing.md)
-            }
+            presetsScrollView
+            intensityControl
         }
         .padding(.vertical, Spacing.sm)
+    }
+
+    private var presetsScrollView: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Spacing.md) {
+                ForEach(viewModel.allPresets) { preset in
+                    presetButton(for: preset)
+                }
+            }
+            .padding(.horizontal, Spacing.md)
+        }
+    }
+
+    private func presetButton(for preset: EditPreset) -> some View {
+        Button {
+            viewModel.applyPreset(preset, intensity: presetIntensity)
+        } label: {
+            presetLabel(for: preset)
+        }
+        .contextMenu {
+            if !preset.isBuiltIn {
+                Button(role: .destructive) {
+                    viewModel.deleteUserPreset(preset)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    private func presetLabel(for preset: EditPreset) -> some View {
+        VStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: CornerRadius.small)
+                .fill(Color.phosphorSurface)
+                .frame(width: 80, height: 80)
+                .overlay {
+                    Image(systemName: "photo")
+                        .foregroundStyle(.phosphorSecondary)
+                }
+                .overlay {
+                    if viewModel.selectedPreset == preset.name {
+                        RoundedRectangle(cornerRadius: CornerRadius.small)
+                            .strokeBorder(Color.phosphorAccent, lineWidth: 2)
+                    }
+                }
+            Text(preset.name)
+                .font(Typography.caption)
+                .foregroundStyle(.phosphorAccent)
+        }
+    }
+
+    @ViewBuilder
+    private var intensityControl: some View {
+        if viewModel.selectedPreset != nil {
+            VStack(alignment: .leading) {
+                Text("Intensity \(Int(presetIntensity * 100))%")
+                    .font(Typography.caption)
+                    .foregroundStyle(.phosphorSecondary)
+                Slider(value: $presetIntensity, in: 0...1)
+                    .tint(.phosphorAccent)
+                    .onChange(of: presetIntensity) { _, _ in
+                        if let name = viewModel.selectedPreset,
+                           let p = viewModel.allPresets.first(where: { $0.name == name }) {
+                            viewModel.applyPreset(p, intensity: presetIntensity)
+                        }
+                    }
+            }
+            .padding(.horizontal, Spacing.md)
+        }
     }
 
     private var lightPanel: some View {

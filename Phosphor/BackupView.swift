@@ -72,7 +72,7 @@ struct BackupView: View {
     }
 
     private var statusSection: some View {
-        Section("Status") {
+        Section {
             row("Local Assets", value: "\(localAssetCount)")
             row("Backed Up", value: "\(manager.progress.completed)")
             row("Failed", value: "\(manager.progress.failed)")
@@ -104,6 +104,8 @@ struct BackupView: View {
                     .foregroundStyle(.phosphorDanger)
                     .listRowBackground(Color.phosphorSurface)
             }
+        } header: {
+            Text("Status")
         }
     }
 
@@ -130,7 +132,7 @@ struct BackupView: View {
     }
 
     private var albumsSection: some View {
-        Section("Albums") {
+        Section {
             if albums.isEmpty {
                 Text("Grant Photos access to choose albums to back up.")
                     .font(Typography.caption)
@@ -150,11 +152,13 @@ struct BackupView: View {
                     .listRowBackground(Color.phosphorSurface)
                 }
             }
+        } header: {
+            Text("Albums")
         }
     }
 
     private var settingsSection: some View {
-        Section("Settings") {
+        Section {
             Toggle(isOn: $wifiOnly) {
                 Label("Wi-Fi Only", systemImage: "wifi")
             }
@@ -169,6 +173,8 @@ struct BackupView: View {
 
             ThrottleRow(value: $throttleKBps)
                 .listRowBackground(Color.phosphorSurface)
+        } header: {
+            Text("Settings")
         }
     }
 

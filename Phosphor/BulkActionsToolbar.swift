@@ -44,67 +44,7 @@ struct BulkActionsToolbar: View {
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
-            HStack(spacing: Spacing.l) {
-                action("heart", "Favorite") {
-                    run { await favorite() }
-                }
-                action("rectangle.stack.badge.plus", "Add to Album") {
-                    showAlbumPicker = true
-                }
-                action("archivebox", "Archive") {
-                    guard !isReadOnly else { showReadOnlyAlert = true; return }
-                    run { await archive() }
-                }
-                action(isReadOnly ? "lock" : "trash", "Trash") {
-                    guard !isReadOnly else { showReadOnlyAlert = true; return }
-                    showTrashConfirm = true
-                }
-                if let shareItems = shareURLs(), !shareItems.isEmpty {
-                    ShareLink(items: shareItems) {
-                        labelStack("square.and.arrow.up", "Share")
-                    }
-                    .accessibilityLabel("Share \(selectedIDs.count) selected")
-                }
-                if let resolveAssets, let onCollage,
-                   selectedIDs.count >= 2 {
-                    action("rectangle.3.group", "Collage") {
-                        let assets = resolveAssets()
-                        guard !assets.isEmpty else { return }
-                        onCollage(assets)
-                    }
-                }
-                if let resolveAssets, let onExport, !selectedIDs.isEmpty {
-                    action("square.and.arrow.down.on.square", "Export") {
-                        let assets = resolveAssets()
-                        guard !assets.isEmpty else { return }
-                        onExport(assets)
-                    }
-                }
-            }
-            .padding(.horizontal, Spacing.l)
-            .padding(.vertical, Spacing.m)
-            .frame(maxWidth: .infinity)
-            .background(.ultraThinMaterial)
-            .disabled(isWorking)
-            .opacity(isWorking ? 0.5 : 1)
-            .overlay {
-                if isWorking {
-                    ProgressView().tint(.phosphorPrimary)
-                }
-            }
-            .overlay(alignment: .top) {
-                HStack {
-                    Text("\(selectedIDs.count) selected")
-                        .font(Typography.subheadline)
-                        .foregroundStyle(.phosphorPrimary)
-                    Spacer()
-                    Button("Cancel") { onCancel() }
-                        .font(Typography.subheadline)
-                        .foregroundStyle(.phosphorPrimary)
-                }
-                .padding(.horizontal, Spacing.l)
-                .offset(y: -36)
-            }
+            actionBar
         }
         .alert("Trash \(selectedIDs.count) photos?", isPresented: $showTrashConfirm) {
             Button("Cancel", role: .cancel) {}
@@ -119,6 +59,91 @@ struct BulkActionsToolbar: View {
             AlbumPickerSheet(assetIDs: ids) { onCancel() }
                 .presentationDetents([.medium, .large])
                 .presentationBackground(.black)
+        }
+    }
+
+    private var actionBar: some View {
+        actionButtons
+            .padding(.horizontal, Spacing.l)
+            .padding(.vertical, Spacing.m)
+            .frame(maxWidth: .infinity)
+            .background(.ultraThinMaterial)
+            .disabled(isWorking)
+            .opacity(isWorking ? 0.5 : 1)
+            .overlay {
+                if isWorking {
+                    ProgressView().tint(.phosphorPrimary)
+                }
+            }
+            .overlay(alignment: .top) {
+                topBar.offset(y: -36)
+            }
+    }
+
+    private var topBar: some View {
+        HStack {
+            Text("\(selectedIDs.count) selected")
+                .font(Typography.subheadline)
+                .foregroundStyle(.phosphorPrimary)
+            Spacer()
+            Button("Cancel") { onCancel() }
+                .font(Typography.subheadline)
+                .foregroundStyle(.phosphorPrimary)
+        }
+        .padding(.horizontal, Spacing.l)
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: Spacing.l) {
+            action("heart", "Favorite") {
+                run { await favorite() }
+            }
+            action("rectangle.stack.badge.plus", "Add to Album") {
+                showAlbumPicker = true
+            }
+            action("archivebox", "Archive") {
+                guard !isReadOnly else { showReadOnlyAlert = true; return }
+                run { await archive() }
+            }
+            action(isReadOnly ? "lock" : "trash", "Trash") {
+                guard !isReadOnly else { showReadOnlyAlert = true; return }
+                showTrashConfirm = true
+            }
+            shareAction
+            collageAction
+            exportAction
+        }
+    }
+
+    @ViewBuilder
+    private var shareAction: some View {
+        if let shareItems = shareURLs(), !shareItems.isEmpty {
+            ShareLink(items: shareItems) {
+                labelStack("square.and.arrow.up", "Share")
+            }
+            .accessibilityLabel("Share \(selectedIDs.count) selected")
+        }
+    }
+
+    @ViewBuilder
+    private var collageAction: some View {
+        if let resolveAssets, let onCollage, selectedIDs.count >= 2 {
+            action("rectangle.3.group", "Collage") {
+                let assets = resolveAssets()
+                guard !assets.isEmpty else { return }
+                onCollage(assets)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var exportAction: some View {
+        if let resolveAssets, let onExport, !selectedIDs.isEmpty {
+            action("square.and.arrow.down.on.square", "Export") {
+                let assets = resolveAssets()
+                guard !assets.isEmpty else { return }
+                onExport(assets)
+            }
         }
     }
 

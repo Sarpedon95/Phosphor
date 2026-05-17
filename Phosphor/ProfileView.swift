@@ -145,7 +145,7 @@ struct ProfileView: View {
 
     @ViewBuilder
     private var statsSection: some View {
-        Section("Statistics") {
+        Section {
             if let stats = viewModel.stats {
                 statRow("Total Assets", value: "\(stats.totalAssets)")
                 statRow("Photos", value: "\(stats.totalPhotos)")
@@ -171,6 +171,8 @@ struct ProfileView: View {
                 }
                 .listRowBackground(Color.phosphorSurface)
             }
+        } header: {
+            Text("Statistics")
         }
     }
 

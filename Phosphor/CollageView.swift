@@ -85,54 +85,7 @@ private struct CollageSettingsSheet: View {
         NavigationStack {
             ZStack {
                 Color.phosphorBackground.ignoresSafeArea()
-                Form {
-                    Section("Spacing") {
-                        VStack(alignment: .leading) {
-                            HStack {
-                                Text("Gap").foregroundStyle(.phosphorSecondary)
-                                Spacer()
-                                Text("\(Int(viewModel.gapWidth))pt").foregroundStyle(.phosphorAccent)
-                            }
-                            Slider(value: $viewModel.gapWidth, in: 0...20, step: 1)
-                                .tint(.phosphorAccent)
-                        }
-                        .listRowBackground(Color.phosphorSurface)
-                        VStack(alignment: .leading) {
-                            HStack {
-                                Text("Corner radius").foregroundStyle(.phosphorSecondary)
-                                Spacer()
-                                Text("\(Int(viewModel.cornerRadius))pt").foregroundStyle(.phosphorAccent)
-                            }
-                            Slider(value: $viewModel.cornerRadius, in: 0...20, step: 1)
-                                .tint(.phosphorAccent)
-                        }
-                        .listRowBackground(Color.phosphorSurface)
-                    }
-                    Section("Background") {
-                        ColorPicker("Background colour", selection: $viewModel.backgroundColor, supportsOpacity: false)
-                            .listRowBackground(Color.phosphorSurface)
-                    }
-                    Section("Blend") {
-                        Picker("Blend mode", selection: $viewModel.blendMode) {
-                            ForEach(CollageBlendMode.allCases) { mode in
-                                Text(mode.label).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .listRowBackground(Color.phosphorSurface)
-                    }
-                    Section("Canvas") {
-                        Picker("Aspect", selection: $viewModel.canvasAspect) {
-                            ForEach(aspects, id: \.1) { entry in
-                                Text(entry.0).tag(entry.1)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .tint(.phosphorAccent)
-                        .listRowBackground(Color.phosphorSurface)
-                    }
-                }
-                .scrollContentBackground(.hidden)
+                settingsForm
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -148,10 +101,83 @@ private struct CollageSettingsSheet: View {
             Task { await viewModel.switchLayout(viewModel.currentLayout) }
         }
         .onChange(of: viewModel.gapWidth) { _, _ in
-            // Re-apply layout: layout maths are gap-agnostic but the spec
-            // carries the gap so renderer + cell views consume the new value.
             Task { await viewModel.switchLayout(viewModel.currentLayout) }
         }
         .preferredColorScheme(.dark)
+    }
+
+    private var settingsForm: some View {
+        Form {
+            spacingSection
+            backgroundSection
+            blendSection
+            canvasSection
+        }
+        .scrollContentBackground(.hidden)
+    }
+
+    private var spacingSection: some View {
+        Section {
+            VStack(alignment: .leading) {
+                HStack {
+                    Text("Gap").foregroundStyle(.phosphorSecondary)
+                    Spacer()
+                    Text("\(Int(viewModel.gapWidth))pt").foregroundStyle(.phosphorAccent)
+                }
+                Slider(value: $viewModel.gapWidth, in: 0...20, step: 1)
+                    .tint(.phosphorAccent)
+            }
+            .listRowBackground(Color.phosphorSurface)
+            VStack(alignment: .leading) {
+                HStack {
+                    Text("Corner radius").foregroundStyle(.phosphorSecondary)
+                    Spacer()
+                    Text("\(Int(viewModel.cornerRadius))pt").foregroundStyle(.phosphorAccent)
+                }
+                Slider(value: $viewModel.cornerRadius, in: 0...20, step: 1)
+                    .tint(.phosphorAccent)
+            }
+            .listRowBackground(Color.phosphorSurface)
+        } header: {
+            Text("Spacing")
+        }
+    }
+
+    private var backgroundSection: some View {
+        Section {
+            ColorPicker("Background colour", selection: $viewModel.backgroundColor, supportsOpacity: false)
+                .listRowBackground(Color.phosphorSurface)
+        } header: {
+            Text("Background")
+        }
+    }
+
+    private var blendSection: some View {
+        Section {
+            Picker("Blend mode", selection: $viewModel.blendMode) {
+                ForEach(CollageBlendMode.allCases) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.phosphorSurface)
+        } header: {
+            Text("Blend")
+        }
+    }
+
+    private var canvasSection: some View {
+        Section {
+            Picker("Aspect", selection: $viewModel.canvasAspect) {
+                ForEach(aspects, id: \.1) { entry in
+                    Text(entry.0).tag(entry.1)
+                }
+            }
+            .pickerStyle(.menu)
+            .tint(.phosphorAccent)
+            .listRowBackground(Color.phosphorSurface)
+        } header: {
+            Text("Canvas")
+        }
     }
 }
