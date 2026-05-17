@@ -16,6 +16,15 @@
     <false/>
     <key>signingStyle</key>
     <string>manual</string>
+    <key>provisioningProfileMapping</key>
+    <dict>
+        <key>com.sarpedon.phosphor</key>
+        <string>Phosphor</string>
+        <key>com.sarpedon.phosphor.widgets</key>
+        <string>Phosphor Widgets</string>
+        <key>com.sarpedon.phosphor.liveactivity</key>
+        <string>Phosphor Live Activity</string>
+    </dict>
     <key>stripSwiftSymbols</key>
     <true/>
     <key>destination</key>
