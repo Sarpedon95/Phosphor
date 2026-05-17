@@ -148,12 +148,19 @@ jobs:
       - name: Export archive
         env:
           TEAM_ID: ${{ secrets.TEAM_ID }}
+          PROVISIONING_PROFILE_SPECIFIER: ${{ secrets.PROVISIONING_PROFILE_SPECIFIER }}
         run: |
           set -o pipefail
-          # xcodebuild does not expand $(...) inside the export plist, so the
-          # real team ID is substituted here at build time.
+          # xcodebuild does not expand $(...) inside the export plist, so values
+          # are substituted here at build time.
           /usr/libexec/PlistBuddy \
             -c "Set :teamID ${TEAM_ID}" ExportOptions.plist
+          /usr/libexec/PlistBuddy \
+            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor ${PROVISIONING_PROFILE_SPECIFIER}" ExportOptions.plist
+          /usr/libexec/PlistBuddy \
+            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor.widgets ${PROVISIONING_PROFILE_SPECIFIER}" ExportOptions.plist
+          /usr/libexec/PlistBuddy \
+            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor.liveactivity ${PROVISIONING_PROFILE_SPECIFIER}" ExportOptions.plist
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportOptionsPlist ExportOptions.plist \
