@@ -161,15 +161,7 @@ struct SharedLinkCreateView: View {
                         SecureField("Password (optional)", text: $password)
                             .listRowBackground(Color.phosphorSurface)
                     }
-                    Section {
-                        Toggle("Set expiry", isOn: $useExpiry)
-                            .tint(.phosphorPrimary)
-                            .listRowBackground(Color.phosphorSurface)
-                        if useExpiry {
-                            DatePicker("Expires", selection: $expiryDate, displayedComponents: .date)
-                                .listRowBackground(Color.phosphorSurface)
-                        }
-                    }
+                    Section { expirySectionContent }
                     Section {
                         Toggle("Allow download", isOn: $allowDownload)
                             .tint(.phosphorPrimary)
@@ -212,6 +204,17 @@ struct SharedLinkCreateView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    @ViewBuilder
+    private var expirySectionContent: some View {
+        Toggle("Set expiry", isOn: $useExpiry)
+            .tint(.phosphorPrimary)
+            .listRowBackground(Color.phosphorSurface)
+        if useExpiry {
+            DatePicker("Expires", selection: $expiryDate, displayedComponents: .date)
+                .listRowBackground(Color.phosphorSurface)
+        }
     }
 
     private func create() async {

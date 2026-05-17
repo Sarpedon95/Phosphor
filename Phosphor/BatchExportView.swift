@@ -148,12 +148,15 @@ struct BatchExportView: View {
 
     @ViewBuilder
     private var actionSection: some View {
-        Section {
-            if isExporting {
-                exportingRow
-            } else {
-                exportButton
-            }
+        Section { actionSectionContent }
+    }
+
+    @ViewBuilder
+    private var actionSectionContent: some View {
+        if isExporting {
+            exportingRow
+        } else {
+            exportButton
         }
     }
 

@@ -251,28 +251,30 @@ struct ProfileView: View {
 
     @ViewBuilder
     private var aboutSection: some View {
-        Section("About") {
-            HStack {
-                Text("Version").foregroundStyle(.phosphorSecondary)
-                Spacer()
-                Text(versionString).foregroundStyle(.phosphorPrimary)
+        Section("About") { aboutSectionContent }
+    }
+
+    @ViewBuilder
+    private var aboutSectionContent: some View {
+        HStack {
+            Text("Version").foregroundStyle(.phosphorSecondary)
+            Spacer()
+            Text(versionString).foregroundStyle(.phosphorPrimary)
+        }
+        .listRowBackground(Color.phosphorSurface)
+
+        if let url = Self.immichDocsURL {
+            Link(destination: url) {
+                HStack {
+                    Label("Immich Docs", systemImage: "book")
+                        .foregroundStyle(.phosphorPrimary)
+                    Spacer()
+                    Image(systemName: "arrow.up.right.square")
+                        .foregroundStyle(.phosphorSecondary)
+                }
             }
             .listRowBackground(Color.phosphorSurface)
-
-            if let url = Self.immichDocsURL {
-                Link(destination: url) {
-                    HStack {
-                        Label("Immich Docs", systemImage: "book")
-                            .foregroundStyle(.phosphorPrimary)
-                        Spacer()
-                        Image(systemName: "arrow.up.right.square")
-                            .foregroundStyle(.phosphorSecondary)
-                    }
-                }
-                .listRowBackground(Color.phosphorSurface)
-                .accessibilityHint("Opens the Immich documentation website in Safari.")
-            }
-
+            .accessibilityHint("Opens the Immich documentation website in Safari.")
         }
     }
 
