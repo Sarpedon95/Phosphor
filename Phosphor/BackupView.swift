@@ -73,90 +73,95 @@ struct BackupView: View {
 
     @ViewBuilder
     private var statusSection: some View {
-        Section {
-            row("Local Assets", value: "\(localAssetCount)")
-            row("Backed Up", value: "\(manager.progress.completed)")
-            row("Failed", value: "\(manager.progress.failed)")
-            if let last = manager.lastBackupDate {
-                row("Last Backup", value: last.formatted(.relative(presentation: .named)))
-            }
-            if manager.progress.isRunning {
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    ProgressView(value: manager.progress.fraction)
-                        .tint(.phosphorPrimary)
-                    HStack {
-                        if let file = manager.progress.currentFileName {
-                            Text("Uploading: \(file)")
-                                .font(Typography.caption)
-                                .foregroundStyle(.phosphorSecondary)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        Text("↑ \(manager.bytesUploadedInLastSecond / 1024) KB/s")
-                            .font(Typography.caption.monospacedDigit())
+        Section { statusSectionContent } header: { Text("Status") }
+    }
+
+    @ViewBuilder
+    private var statusSectionContent: some View {
+        row("Local Assets", value: "\(localAssetCount)")
+        row("Backed Up", value: "\(manager.progress.completed)")
+        row("Failed", value: "\(manager.progress.failed)")
+        if let last = manager.lastBackupDate {
+            row("Last Backup", value: last.formatted(.relative(presentation: .named)))
+        }
+        if manager.progress.isRunning {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                ProgressView(value: manager.progress.fraction)
+                    .tint(.phosphorPrimary)
+                HStack {
+                    if let file = manager.progress.currentFileName {
+                        Text("Uploading: \(file)")
+                            .font(Typography.caption)
                             .foregroundStyle(.phosphorSecondary)
+                            .lineLimit(1)
                     }
+                    Spacer()
+                    Text("↑ \(manager.bytesUploadedInLastSecond / 1024) KB/s")
+                        .font(Typography.caption.monospacedDigit())
+                        .foregroundStyle(.phosphorSecondary)
                 }
+            }
+            .listRowBackground(Color.phosphorSurface)
+        }
+        if let error = manager.lastError {
+            Text(error.localizedDescription)
+                .font(Typography.caption)
+                .foregroundStyle(.phosphorDanger)
                 .listRowBackground(Color.phosphorSurface)
-            }
-            if let error = manager.lastError {
-                Text(error.localizedDescription)
-                    .font(Typography.caption)
-                    .foregroundStyle(.phosphorDanger)
-                    .listRowBackground(Color.phosphorSurface)
-            }
-        } header: {
-            Text("Status")
         }
     }
 
     @ViewBuilder
     private var controlsSection: some View {
-        Section {
-            if manager.progress.isRunning {
-                Button(role: .destructive) {
-                    manager.cancelBackup()
-                } label: {
-                    Label("Cancel Backup", systemImage: "stop.circle")
-                }
-                .listRowBackground(Color.phosphorSurface)
-                .accessibilityHint("Stops the in-progress upload run.")
-            } else {
-                Button {
-                    Task { await startBackup() }
-                } label: {
-                    Label("Start Backup", systemImage: "arrow.up.circle")
-                }
-                .listRowBackground(Color.phosphorSurface)
-                .accessibilityHint("Uploads selected camera roll albums to the server.")
+        Section { controlsSectionContent }
+    }
+
+    @ViewBuilder
+    private var controlsSectionContent: some View {
+        if manager.progress.isRunning {
+            Button(role: .destructive) {
+                manager.cancelBackup()
+            } label: {
+                Label("Cancel Backup", systemImage: "stop.circle")
             }
+            .listRowBackground(Color.phosphorSurface)
+            .accessibilityHint("Stops the in-progress upload run.")
+        } else {
+            Button {
+                Task { await startBackup() }
+            } label: {
+                Label("Start Backup", systemImage: "arrow.up.circle")
+            }
+            .listRowBackground(Color.phosphorSurface)
+            .accessibilityHint("Uploads selected camera roll albums to the server.")
         }
     }
 
     @ViewBuilder
     private var albumsSection: some View {
-        Section {
-            if albums.isEmpty {
-                Text("Grant Photos access to choose albums to back up.")
-                    .font(Typography.caption)
-                    .foregroundStyle(.phosphorSecondary)
-                    .listRowBackground(Color.phosphorSurface)
-            } else {
-                ForEach(albums, id: \.localIdentifier) { coll in
-                    Toggle(coll.localizedTitle ?? "Untitled", isOn: Binding(
-                        get: { selectedAlbumIDs.contains(coll.localIdentifier) },
-                        set: { isOn in
-                            if isOn { selectedAlbumIDs.insert(coll.localIdentifier) }
-                            else { selectedAlbumIDs.remove(coll.localIdentifier) }
-                            manager.selectedAlbumIDs = selectedAlbumIDs
-                        }
-                    ))
-                    .tint(.phosphorPrimary)
-                    .listRowBackground(Color.phosphorSurface)
-                }
+        Section { albumsSectionContent } header: { Text("Albums") }
+    }
+
+    @ViewBuilder
+    private var albumsSectionContent: some View {
+        if albums.isEmpty {
+            Text("Grant Photos access to choose albums to back up.")
+                .font(Typography.caption)
+                .foregroundStyle(.phosphorSecondary)
+                .listRowBackground(Color.phosphorSurface)
+        } else {
+            ForEach(albums, id: \.localIdentifier) { coll in
+                Toggle(coll.localizedTitle ?? "Untitled", isOn: Binding(
+                    get: { selectedAlbumIDs.contains(coll.localIdentifier) },
+                    set: { isOn in
+                        if isOn { selectedAlbumIDs.insert(coll.localIdentifier) }
+                        else { selectedAlbumIDs.remove(coll.localIdentifier) }
+                        manager.selectedAlbumIDs = selectedAlbumIDs
+                    }
+                ))
+                .tint(.phosphorPrimary)
+                .listRowBackground(Color.phosphorSurface)
             }
-        } header: {
-            Text("Albums")
         }
     }
 

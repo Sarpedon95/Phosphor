@@ -98,24 +98,25 @@ struct BatchExportView: View {
 
     @ViewBuilder
     private var formatSection: some View {
-        Section {
-            Picker("Format", selection: $format) {
-                ForEach(Format.allCases) { Text($0.rawValue).tag($0) }
+        Section { formatSectionContent } header: { Text("Format") }
+    }
+
+    @ViewBuilder
+    private var formatSectionContent: some View {
+        Picker("Format", selection: $format) {
+            ForEach(Format.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .listRowBackground(Color.phosphorSurface)
+        if format == .jpeg {
+            VStack(alignment: .leading) {
+                Text("Quality \(Int(jpegQuality))%")
+                    .font(Typography.caption)
+                    .foregroundStyle(.phosphorSecondary)
+                Slider(value: $jpegQuality, in: 60...100, step: 1)
+                    .tint(.phosphorAccent)
             }
-            .pickerStyle(.segmented)
             .listRowBackground(Color.phosphorSurface)
-            if format == .jpeg {
-                VStack(alignment: .leading) {
-                    Text("Quality \(Int(jpegQuality))%")
-                        .font(Typography.caption)
-                        .foregroundStyle(.phosphorSecondary)
-                    Slider(value: $jpegQuality, in: 60...100, step: 1)
-                        .tint(.phosphorAccent)
-                }
-                .listRowBackground(Color.phosphorSurface)
-            }
-        } header: {
-            Text("Format")
         }
     }
 

@@ -164,12 +164,12 @@ final class EditingViewModel: ObservableObject {
         previewTask?.cancel()
         guard let base = screenResImage else { return }
         let adj = adjustments
-        previewTask = Task.detached(priority: .userInitiated) { [weak self] in
+        previewTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 150_000_000)
             guard !Task.isCancelled else { return }
             let result = await Self.applyPipeline(to: base, adj: adj, finalCrop: false)
             guard !Task.isCancelled else { return }
-            await MainActor.run { self?.previewImage = result }
+            self?.previewImage = result
         }
     }
 

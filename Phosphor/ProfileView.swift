@@ -146,34 +146,35 @@ struct ProfileView: View {
 
     @ViewBuilder
     private var statsSection: some View {
-        Section {
-            if let stats = viewModel.stats {
-                statRow("Total Assets", value: "\(stats.totalAssets)")
-                statRow("Photos", value: "\(stats.totalPhotos)")
-                statRow("Videos", value: "\(stats.totalVideos)")
-                statRow("Storage Used", value: StorageFormatter.string(fromBytes: stats.storageUsed))
-                statRow("Albums", value: "\(stats.totalAlbums)")
-                statRow("People", value: "\(stats.totalPeople)")
-            } else if viewModel.isLoadingStats {
-                HStack {
-                    ProgressView().controlSize(.small).tint(.phosphorPrimary)
-                    Text("Loading statistics…").foregroundStyle(.phosphorSecondary)
-                }
-                .listRowBackground(Color.phosphorSurface)
-            } else if let error = viewModel.statsError {
-                VStack(alignment: .leading, spacing: Spacing.xs) {
-                    Text(error.localizedDescription)
-                        .font(Typography.footnote)
-                        .foregroundStyle(.phosphorSecondary)
-                    Button("Retry") {
-                        Task { await viewModel.loadStats() }
-                    }
-                    .font(Typography.subheadline)
-                }
-                .listRowBackground(Color.phosphorSurface)
+        Section { statsSectionContent } header: { Text("Statistics") }
+    }
+
+    @ViewBuilder
+    private var statsSectionContent: some View {
+        if let stats = viewModel.stats {
+            statRow("Total Assets", value: "\(stats.totalAssets)")
+            statRow("Photos", value: "\(stats.totalPhotos)")
+            statRow("Videos", value: "\(stats.totalVideos)")
+            statRow("Storage Used", value: StorageFormatter.string(fromBytes: stats.storageUsed))
+            statRow("Albums", value: "\(stats.totalAlbums)")
+            statRow("People", value: "\(stats.totalPeople)")
+        } else if viewModel.isLoadingStats {
+            HStack {
+                ProgressView().controlSize(.small).tint(.phosphorPrimary)
+                Text("Loading statistics…").foregroundStyle(.phosphorSecondary)
             }
-        } header: {
-            Text("Statistics")
+            .listRowBackground(Color.phosphorSurface)
+        } else if let error = viewModel.statsError {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text(error.localizedDescription)
+                    .font(Typography.footnote)
+                    .foregroundStyle(.phosphorSecondary)
+                Button("Retry") {
+                    Task { await viewModel.loadStats() }
+                }
+                .font(Typography.subheadline)
+            }
+            .listRowBackground(Color.phosphorSurface)
         }
     }
 

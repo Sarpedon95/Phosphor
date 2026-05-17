@@ -1023,22 +1023,23 @@ private struct ExifSheet: View {
 
     @ViewBuilder
     private var captureSection: some View {
-        Section {
-            if hasCaptureMetadata {
-                row("Camera", camera)
-                row("Lens", asset.exifInfo?.lensModel)
-                row("Focal Length", asset.exifInfo?.focalLength.map { "\(Int($0))mm" })
-                row("Aperture", asset.exifInfo?.fNumber.map { "f/\(String(format: "%.1f", $0))" })
-                row("ISO", asset.exifInfo?.iso.map(String.init))
-                row("Exposure", asset.exifInfo?.exposureTime)
-            } else {
-                Text("No metadata available")
-                    .font(Typography.subheadline)
-                    .foregroundStyle(.phosphorSecondary)
-                    .listRowBackground(Color.phosphorSurface)
-            }
-        } header: {
-            Text("Capture")
+        Section { captureSectionContent } header: { Text("Capture") }
+    }
+
+    @ViewBuilder
+    private var captureSectionContent: some View {
+        if hasCaptureMetadata {
+            row("Camera", camera)
+            row("Lens", asset.exifInfo?.lensModel)
+            row("Focal Length", asset.exifInfo?.focalLength.map { "\(Int($0))mm" })
+            row("Aperture", asset.exifInfo?.fNumber.map { "f/\(String(format: "%.1f", $0))" })
+            row("ISO", asset.exifInfo?.iso.map(String.init))
+            row("Exposure", asset.exifInfo?.exposureTime)
+        } else {
+            Text("No metadata available")
+                .font(Typography.subheadline)
+                .foregroundStyle(.phosphorSecondary)
+                .listRowBackground(Color.phosphorSurface)
         }
     }
 
