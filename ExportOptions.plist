@@ -19,7 +19,7 @@
     <!-- Provisioning profile mapping: each target uses its own profile.
          The CI installs these from the 3 GitHub secrets (PROVISIONING_PROFILE_BASE64_*).
          Profile names are injected via PlistBuddy in the export step. -->
-    <key>provisioningProfileMapping</key>
+    <key>provisioningProfiles</key>
     <dict>
         <key>com.sarpedon.phosphor</key>
         <string>Phosphor App Store</string>
