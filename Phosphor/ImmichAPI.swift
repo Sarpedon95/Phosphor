@@ -983,15 +983,20 @@ final class ImmichAPI {
         address: String,
         update: @MainActor @escaping ([ConnectionTestStep]) -> Void
     ) async -> ResolvedConnection? {
+        // `steps` is mutated below; each `await MainActor.run` snapshots it
+        // into an immutable `let` before crossing the actor boundary, so the
+        // closure captures a Sendable copy (Swift 6 strict-concurrency).
         var steps = makeConnectionTestSteps()
-        await MainActor.run { update(steps) }
+        let snapshot0 = steps
+        await MainActor.run { update(snapshot0) }
 
         // Phase 1 + 2 are folded together: resolveConnection() does a TCP
         // open + HTTP /server/ping decode. We surface them as separate UI
         // rows so the user can see whether the failure was at the network
         // layer or at the API layer.
         steps[0].status = .running
-        await MainActor.run { update(steps) }
+        let snapshot1 = steps
+        await MainActor.run { update(snapshot1) }
 
         guard let resolved = await resolveConnection(address: address) else {
             // Try a raw TCP probe to distinguish "host unreachable" from
@@ -1005,14 +1010,16 @@ final class ImmichAPI {
                 steps[1].status = .pending
             }
             steps[2].status = .pending
-            await MainActor.run { update(steps) }
+            let snapshotFail = steps
+            await MainActor.run { update(snapshotFail) }
             return nil
         }
 
         steps[0].status = .success("Reached")
         steps[1].status = .success(resolved.prefix.isEmpty ? "Legacy API (no /api)" : "/api")
         steps[2].status = .running
-        await MainActor.run { update(steps) }
+        let snapshot2 = steps
+        await MainActor.run { update(snapshot2) }
 
         // Phase 3: server version is supplementary — failure doesn't fail
         // the test, it just shows "unknown" in the row.
@@ -1035,7 +1042,8 @@ final class ImmichAPI {
         } else {
             steps[2].status = .success("unknown")
         }
-        await MainActor.run { update(steps) }
+        let snapshot3 = steps
+        await MainActor.run { update(snapshot3) }
         return resolved
     }
 
