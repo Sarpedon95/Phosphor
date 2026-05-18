@@ -354,14 +354,22 @@ final class ImmichAPI {
 
     // MARK: - Endpoints
 
+    /// Lists timeline assets via `POST /search/metadata`. Modern Immich
+    /// (v1.106+) removed `GET /assets`; this is the surviving endpoint that
+    /// returns a paginated, unfiltered asset list when the body is empty
+    /// apart from page/size.
     func fetchTimeline(page: Int, pageSize: Int) async throws -> [ImmichAsset] {
-        try await request(
-            "assets",
-            query: [
-                URLQueryItem(name: "page", value: String(page)),
-                URLQueryItem(name: "size", value: String(pageSize))
-            ]
+        struct TimelineRequest: Encodable {
+            let page: Int
+            let size: Int
+        }
+        let body = try JSONEncoder().encode(
+            TimelineRequest(page: page, size: pageSize)
         )
+        let response: SearchResponse = try await request(
+            "search/metadata", method: "POST", body: body
+        )
+        return response.assets.items
     }
 
     func fetchAsset(id: String) async throws -> ImmichAsset {
