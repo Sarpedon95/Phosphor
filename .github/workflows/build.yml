@@ -1,15 +1,16 @@
 # Phosphor — Build, archive & TestFlight upload
 #
 # Required GitHub Actions secrets:
-#   APPLE_ID                       — Apple ID used to upload to TestFlight
-#   APP_SPECIFIC_PASSWORD          — app-specific password for that Apple ID
-#   TEAM_ID                        — 10-character Apple Developer Team ID
-#   CERTIFICATE_BASE64             — base64-encoded distribution .p12
-#   CERTIFICATE_PASSWORD           — password for the .p12 (also used as
-#                                    temporary keychain password)
-#   PROVISIONING_PROFILE_BASE64    — base64-encoded .mobileprovision
-#   CODE_SIGN_IDENTITY             — e.g. "Apple Distribution: James … (TEAMID)"
-#   PROVISIONING_PROFILE_SPECIFIER — name of the provisioning profile
+#   APPLE_ID                           — Apple ID used to upload to TestFlight
+#   APP_SPECIFIC_PASSWORD              — app-specific password for that Apple ID
+#   TEAM_ID                            — 10-character Apple Developer Team ID
+#   CERTIFICATE_BASE64                 — base64-encoded distribution .p12
+#   CERTIFICATE_PASSWORD               — password for the .p12 (also used as
+#                                        temporary keychain password)
+#   PROVISIONING_PROFILE_BASE64_MAIN   — base64-encoded main app .mobileprovision
+#   PROVISIONING_PROFILE_BASE64_WIDGETS — base64-encoded widgets .mobileprovision
+#   PROVISIONING_PROFILE_BASE64_LIVEACTIVITY — base64-encoded liveactivity .mobileprovision
+#   CODE_SIGN_IDENTITY                 — e.g. "Apple Distribution: James … (TEAMID)"
 #
 # CFBundleVersion strategy (matches Hyperion):
 #   `${{ github.run_number }}` is patched into BOTH project.yml
@@ -113,15 +114,21 @@ jobs:
             -S apple-tool:,apple:,codesign: \
             -s -k "$CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
 
-      # 8. Install the provisioning profile.
-      - name: Install provisioning profile
+      # 8. Install the provisioning profiles (main app + 2 extensions).
+      - name: Install provisioning profiles
         env:
-          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          PROVISIONING_PROFILE_BASE64_MAIN: ${{ secrets.PROVISIONING_PROFILE_BASE64_MAIN }}
+          PROVISIONING_PROFILE_BASE64_WIDGETS: ${{ secrets.PROVISIONING_PROFILE_BASE64_WIDGETS }}
+          PROVISIONING_PROFILE_BASE64_LIVEACTIVITY: ${{ secrets.PROVISIONING_PROFILE_BASE64_LIVEACTIVITY }}
         run: |
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILE_DIR"
-          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode \
-            > "$PROFILE_DIR/Phosphor.mobileprovision"
+          echo "$PROVISIONING_PROFILE_BASE64_MAIN" | base64 --decode \
+            > "$PROFILE_DIR/Phosphor App Store.mobileprovision"
+          echo "$PROVISIONING_PROFILE_BASE64_WIDGETS" | base64 --decode \
+            > "$PROFILE_DIR/Phosphor Widgets Distribution.mobileprovision"
+          echo "$PROVISIONING_PROFILE_BASE64_LIVEACTIVITY" | base64 --decode \
+            > "$PROFILE_DIR/Phosphor LiveActivity Distribution.mobileprovision"
 
       # 9. Archive (Release).
       - name: Archive
@@ -148,7 +155,6 @@ jobs:
       - name: Export archive
         env:
           TEAM_ID: ${{ secrets.TEAM_ID }}
-          PROVISIONING_PROFILE_SPECIFIER: ${{ secrets.PROVISIONING_PROFILE_SPECIFIER }}
         run: |
           set -o pipefail
           # xcodebuild does not expand $(...) inside the export plist, so values
@@ -156,11 +162,11 @@ jobs:
           /usr/libexec/PlistBuddy \
             -c "Set :teamID ${TEAM_ID}" ExportOptions.plist
           /usr/libexec/PlistBuddy \
-            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor ${PROVISIONING_PROFILE_SPECIFIER}" ExportOptions.plist
+            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor 'Phosphor App Store'" ExportOptions.plist
           /usr/libexec/PlistBuddy \
-            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor.widgets ${PROVISIONING_PROFILE_SPECIFIER}" ExportOptions.plist
+            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor.widgets 'Phosphor Widgets Distribution'" ExportOptions.plist
           /usr/libexec/PlistBuddy \
-            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor.liveactivity ${PROVISIONING_PROFILE_SPECIFIER}" ExportOptions.plist
+            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor.liveactivity 'Phosphor LiveActivity Distribution'" ExportOptions.plist
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportOptionsPlist ExportOptions.plist \
@@ -168,7 +174,16 @@ jobs:
             -allowProvisioningUpdates \
             | tee -a build.log
 
-      # 11. Upload to TestFlight.
+      # 11. Inspect IPA contents (debug).
+      - name: Inspect IPA contents
+        run: |
+          echo "=== IPA Contents ==="
+          unzip -l "$IPA_PATH" | grep -E "mobileprovision|embedded" || echo "No mobileprovision found"
+          echo ""
+          echo "=== Payload Structure ==="
+          unzip -l "$IPA_PATH" | grep "Payload/" | head -30
+
+      # 12. Upload to TestFlight.
       #
       # `xcrun altool --upload-app` is the supported CLI for App Store Connect
       # iOS uploads in Xcode 16. `notarytool` is NOT a substitute — it only
@@ -188,7 +203,7 @@ jobs:
             --username "$APPLE_ID" \
             --password "$APP_SPECIFIC_PASSWORD"
 
-      # 12. On failure, capture build logs.
+      # 13. On failure, capture build logs.
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
