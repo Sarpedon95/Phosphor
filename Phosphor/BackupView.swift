@@ -277,7 +277,7 @@ struct BackupView: View {
         // iOS smart albums worth exposing for backup — Hidden + the media-
         // type collections that mirror what the Photos app shows.
         let smartTypes: [PHAssetCollectionSubtype] = [
-            .smartAlbumHidden,
+            .smartAlbumAllHidden,
             .smartAlbumFavorites,
             .smartAlbumScreenshots,
             .smartAlbumSelfPortraits,

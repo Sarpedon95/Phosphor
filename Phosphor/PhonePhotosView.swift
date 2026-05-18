@@ -314,7 +314,7 @@ struct PhonePhotosView: View {
 
     static func symbol(for coll: PHAssetCollection) -> String {
         switch coll.assetCollectionSubtype {
-        case .smartAlbumHidden: return "eye.slash"
+        case .smartAlbumAllHidden: return "eye.slash"
         case .smartAlbumFavorites: return "heart"
         case .smartAlbumScreenshots: return "camera.viewfinder"
         case .smartAlbumSelfPortraits: return "person.crop.square"
@@ -390,7 +390,7 @@ final class PhonePhotosModel: ObservableObject {
         )
         userAlbums.enumerateObjects { coll, _, _ in albums.append(coll) }
         let smartTypes: [PHAssetCollectionSubtype] = [
-            .smartAlbumHidden, .smartAlbumFavorites, .smartAlbumScreenshots,
+            .smartAlbumAllHidden, .smartAlbumFavorites, .smartAlbumScreenshots,
             .smartAlbumSelfPortraits, .smartAlbumLivePhotos, .smartAlbumVideos,
             .smartAlbumSlomoVideos, .smartAlbumTimelapses,
             .smartAlbumPanoramas, .smartAlbumLongExposures,
