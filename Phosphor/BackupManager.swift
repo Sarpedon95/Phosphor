@@ -380,6 +380,38 @@ final class BackupManager: ObservableObject {
         }
     }
 
+    /// Uploads a user-picked set of PHAssets in one shot. Used by the
+    /// Device Photos view's multi-select action. Refuses if an automated
+    /// backup is already running so the progress counters stay coherent.
+    @discardableResult
+    func uploadAssets(withLocalIDs ids: [String]) async -> (succeeded: Int, failed: Int) {
+        guard currentTask == nil else { return (0, 0) }
+        let fetch = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
+        var assets: [PHAsset] = []
+        fetch.enumerateObjects { asset, _, _ in assets.append(asset) }
+        guard !assets.isEmpty else { return (0, 0) }
+
+        progress = UploadProgress(total: assets.count, isRunning: true)
+        lastError = nil
+        runStartDate = Date()
+        estimatedTimeRemaining = nil
+        liveActivityStart()
+
+        for asset in assets {
+            if Task.isCancelled { break }
+            let bytes = await uploadOne(asset)
+            updateETR()
+            liveActivityUpdate()
+            await applyThrottle(bytesUploaded: bytes)
+        }
+
+        let ok = progress.completed
+        let fail = progress.failed
+        progress.isRunning = false
+        liveActivityEnd(failed: fail > 0 && ok == 0)
+        return (ok, fail)
+    }
+
     /// Finds local PHAssets that are safe to delete (already present on the
     /// server, matched by SHA1). Convenience entry point for FreeUpSpaceView.
     func findLocalAssetsAlreadyOnServer() async -> [PHAsset] {

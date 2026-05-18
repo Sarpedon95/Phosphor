@@ -23,6 +23,7 @@ struct ProfileView: View {
                 List {
                     serverSection
                     statsSection
+                    devicePhotosSection
                     librarySection
                     appearanceSection
                     safetySection
@@ -281,13 +282,37 @@ struct ProfileView: View {
         }
     }
 
+    // MARK: - iOS Photos integration
+
+    @ViewBuilder
+    private var devicePhotosSection: some View {
+        Section("On This Device") {
+            NavigationLink {
+                PhonePhotosView()
+            } label: {
+                Label("Device Photos", systemImage: "iphone.gen3")
+                    .foregroundStyle(.phosphorAccent)
+            }
+            .listRowBackground(Color.phosphorSurface)
+            .accessibilityHint("Browse iOS Photos including Hidden, and upload selected photos to your server.")
+
+            NavigationLink {
+                BackupView()
+            } label: {
+                Label("Auto Backup", systemImage: "arrow.up.circle")
+                    .foregroundStyle(.phosphorAccent)
+            }
+            .listRowBackground(Color.phosphorSurface)
+            .accessibilityHint("Configure which iOS albums sync to your server automatically.")
+        }
+    }
+
     // MARK: - Library management
 
     @ViewBuilder
     private var librarySection: some View {
         Section("Library") {
             libraryLink("Favorites", "heart") { FavoritesView() }
-            libraryLink("Backup", "arrow.up.circle") { BackupView() }
             libraryLink("Trash", "trash") { TrashView() }
             libraryLink("Archive", "archivebox") { ArchiveView() }
             libraryLink("Shared Links", "link") { SharedLinksView() }
