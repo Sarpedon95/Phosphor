@@ -45,6 +45,27 @@ struct AlbumsView: View {
     }
 
     var body: some View {
+        navigationStack
+            .alert(
+                "Something went wrong",
+                isPresented: Binding(
+                    get: { actionError != nil },
+                    set: { if !$0 { actionError = nil } }
+                ),
+                presenting: actionError
+            ) { _ in
+                Button("OK", role: .cancel) { actionError = nil }
+            } message: { message in
+                Text(message)
+            }
+            .alert("Read-only mode is on", isPresented: $showReadOnlyAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Disable read-only mode in Profile to perform this action.")
+            }
+    }
+
+    private var navigationStack: some View {
         NavigationStack {
             ZStack {
                 Color.phosphorBackground.ignoresSafeArea()
@@ -108,23 +129,6 @@ struct AlbumsView: View {
             }
         } message: { album in
             Text("\"\(album.albumName)\" will be permanently deleted.")
-        }
-        .alert(
-            "Something went wrong",
-            isPresented: Binding(
-                get: { actionError != nil },
-                set: { if !$0 { actionError = nil } }
-            ),
-            presenting: actionError
-        ) { _ in
-            Button("OK", role: .cancel) { actionError = nil }
-        } message: { message in
-            Text(message)
-        }
-        .alert("Read-only mode is on", isPresented: $showReadOnlyAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Disable read-only mode in Profile to perform this action.")
         }
     }
 
