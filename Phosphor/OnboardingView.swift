@@ -1,134 +1,168 @@
 import SwiftUI
 import Network
 
-/// Three-step onboarding: discovery → login (email/password) → API key
-/// fallback. Cannot be dismissed until a connection is established; the parent
-/// `ContentView` drives the `fullScreenCover` binding from
-/// `ConnectionManager.isConfigured`.
+/// Address normalization shared by manual entry and discovery taps. Adds
+/// http:// if no scheme, then :2283 if no explicit port — so the connection
+/// resolver always has an unambiguous URL to try (it upgrades http→https
+/// itself when the user gave no scheme).
+func normalizeImmichURL(_ raw: String) -> String {
+    var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !s.hasPrefix("http://") && !s.hasPrefix("https://") { s = "http://" + s }
+    if let url = URL(string: s), url.port == nil { s += ":2283" }
+    return s
+}
+
+/// First-run / re-auth connection flow, modeled on a friendly home-appliance
+/// setup rather than developer tooling: discover → sign in → (API-key
+/// fallback). Three full-screen dark steps, no system navigation chrome.
 struct OnboardingView: View {
     @EnvironmentObject private var connectionManager: ConnectionManager
+    @Environment(\.dismiss) private var dismiss
 
-    enum Step: Hashable {
+    /// When presented to add an additional server (not first-run), the
+    /// wordmark is hidden and a dismiss button replaces the discovery back.
+    let isAddingAdditional: Bool
+
+    enum OnboardingStep: Equatable {
         case discovery
-        case login(serverURL: String)
-        case apiKey(serverURL: String)
+        case login(url: String)
+        case apiKey(url: String)
     }
 
-    @State private var step: Step = .discovery
+    @State private var step: OnboardingStep = .discovery
 
-    init(connectionManager: ConnectionManager) {
-        // Parameter kept for source compatibility with the existing
-        // ContentView call site (`OnboardingView(connectionManager:)`).
-        _ = connectionManager
+    init(connectionManager: ConnectionManager, isAddingAdditional: Bool = false) {
+        _ = connectionManager   // kept for call-site compatibility
+        self.isAddingAdditional = isAddingAdditional
     }
 
     var body: some View {
         ZStack {
-            Color.phosphorBackground.ignoresSafeArea()
-            stepView
-                .transition(.opacity.combined(with: .move(edge: .trailing)))
+            Color.black.ignoresSafeArea()
+            content
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
         }
-        .animation(.easeInOut(duration: 0.22), value: step)
-        .interactiveDismissDisabled(true)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: step)
+        .interactiveDismissDisabled(!isAddingAdditional)
         .preferredColorScheme(.dark)
     }
 
     @ViewBuilder
-    private var stepView: some View {
+    private var content: some View {
         switch step {
         case .discovery:
-            DiscoveryStep(step: $step)
-        case .login(let serverURL):
-            LoginStep(step: $step, serverURL: serverURL)
-        case .apiKey(let serverURL):
-            APIKeyStep(step: $step, serverURL: serverURL)
+            DiscoveryScreen(
+                isAddingAdditional: isAddingAdditional,
+                onDismiss: { dismiss() },
+                onPick: { address in
+                    withAnimation { step = .login(url: address) }
+                }
+            )
+        case .login(let url):
+            CredentialsScreen(
+                initialAddress: url,
+                onBack: { withAnimation { step = .discovery } },
+                onUseAPIKey: { resolved in
+                    withAnimation { step = .apiKey(url: resolved) }
+                }
+            )
+        case .apiKey(let url):
+            APIKeyScreen(
+                initialAddress: url,
+                onBack: { withAnimation { step = .login(url: url) } }
+            )
         }
     }
 }
 
-// MARK: - Step 1: Discovery
+// MARK: - Screen 1: Discovery
 
-private struct DiscoveryStep: View {
-    @Binding var step: OnboardingView.Step
+private struct DiscoveryScreen: View {
+    let isAddingAdditional: Bool
+    let onDismiss: () -> Void
+    let onPick: (String) -> Void
 
-    @State private var manualURL = ""
     @StateObject private var discovery = MDNSDiscovery()
+    @State private var manualAddress = ""
     @State private var showQR = false
 
     var body: some View {
-        VStack(spacing: Spacing.lg) {
-            wordmark
-                .padding(.top, Spacing.xxl)
+        VStack(spacing: 0) {
+            if isAddingAdditional {
+                HStack {
+                    Spacer()
+                    Button("Cancel", action: onDismiss)
+                        .font(Typography.subheadline)
+                        .foregroundStyle(.phosphorSecondary)
+                }
+                .padding(Spacing.md)
+            }
 
-            discoveryStatus
-            discoveredList
-                .frame(maxHeight: 240)
+            Spacer(minLength: Spacing.lg)
+
+            if !isAddingAdditional {
+                VStack(spacing: Spacing.sm) {
+                    Text("Phosphor")
+                        .font(Typography.wordmark)
+                        .foregroundStyle(.phosphorPrimary)
+                    Text("Your Immich, beautifully.")
+                        .font(Typography.subheadline)
+                        .foregroundStyle(.phosphorSecondary)
+                }
+            }
+
+            Spacer(minLength: Spacing.lg)
+
+            discoveryList
+                .frame(maxHeight: 260)
+
+            Spacer(minLength: Spacing.lg)
 
             manualEntry
-            qrButton
 
-            Spacer(minLength: 0)
+            Spacer(minLength: Spacing.md)
         }
         .padding(.horizontal, Spacing.xl)
-        .onAppear {
-            discovery.start(duration: 8)
-        }
+        .onAppear { discovery.start(duration: 10) }
         .onDisappear { discovery.stop() }
         .sheet(isPresented: $showQR) {
             QRScannerView { code in
                 showQR = false
-                if let url = parseURL(code) {
-                    step = .login(serverURL: url)
+                if let host = hostFromScanned(code) {
+                    onPick(host)
                 }
             }
         }
     }
 
-    private var wordmark: some View {
-        VStack(spacing: Spacing.s) {
-            Text("Phosphor")
-                .font(Typography.wordmark)
-                .foregroundStyle(.phosphorPrimary)
-            Text("Find your Immich server")
-                .font(Typography.subheadline)
-                .foregroundStyle(.phosphorSecondary)
-                .multilineTextAlignment(.center)
-        }
-    }
-
     @ViewBuilder
-    private var discoveryStatus: some View {
-        if discovery.isScanning {
-            HStack(spacing: Spacing.sm) {
-                ProgressView().tint(.phosphorAccent)
-                Text("Searching your network…")
-                    .font(Typography.subheadline)
-                    .foregroundStyle(.phosphorSecondary)
+    private var discoveryList: some View {
+        if discovery.servers.isEmpty {
+            if discovery.isScanning {
+                PulsingSearchRow()
+            } else {
+                Text("No servers found on your network")
+                    .font(Typography.footnote)
+                    .foregroundStyle(.phosphorTertiary)
             }
-        } else if discovery.servers.isEmpty {
-            Text("No servers found nearby")
-                .font(Typography.subheadline)
-                .foregroundStyle(.phosphorSecondary)
-        }
-    }
-
-    @ViewBuilder
-    private var discoveredList: some View {
-        if !discovery.servers.isEmpty {
+        } else {
             ScrollView {
                 VStack(spacing: Spacing.sm) {
                     ForEach(discovery.servers) { server in
                         Button {
                             HapticManager.selection()
-                            step = .login(serverURL: server.url)
+                            onPick(server.onboardingAddress)
                         } label: {
-                            HStack(spacing: Spacing.md) {
+                            HStack {
                                 Circle()
-                                    .fill(.green)
-                                    .frame(width: 10, height: 10)
+                                    .fill(Color.phosphorAccent)
+                                    .frame(width: 8, height: 8)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(server.name)
-                                        .font(Typography.subheadline)
+                                        .font(Typography.body)
                                         .foregroundStyle(.phosphorPrimary)
                                     Text(server.displayHost)
                                         .font(Typography.caption)
@@ -136,10 +170,15 @@ private struct DiscoveryStep: View {
                                 }
                                 Spacer()
                                 Image(systemName: "chevron.right")
-                                    .foregroundStyle(.phosphorSecondary)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.phosphorTertiary)
                             }
-                            .padding(Spacing.md)
-                            .background(Color.phosphorSurface, in: RoundedRectangle(cornerRadius: CornerRadius.small, style: .continuous))
+                            .padding(.horizontal, Spacing.md)
+                            .padding(.vertical, Spacing.sm)
+                            .background(
+                                Color.white.opacity(0.05),
+                                in: RoundedRectangle(cornerRadius: CornerRadius.medium, style: .continuous)
+                            )
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Connect to \(server.name) at \(server.displayHost)")
@@ -151,50 +190,57 @@ private struct DiscoveryStep: View {
     }
 
     private var manualEntry: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text("Or enter server address")
-                .font(Typography.caption)
-                .foregroundStyle(.phosphorSecondary)
-            HStack(spacing: Spacing.sm) {
-                TextField("https://photos.example.com", text: $manualURL)
-                    .textContentType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-                    .padding(Spacing.sm)
-                    .background(Color.phosphorSurface, in: RoundedRectangle(cornerRadius: CornerRadius.small, style: .continuous))
-                    .foregroundStyle(.phosphorPrimary)
-                Button("Continue") {
-                    let trimmed = manualURL.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return }
-                    step = .login(serverURL: trimmed)
-                }
-                .font(Typography.subheadline.bold())
-                .foregroundStyle(manualURL.isEmpty ? .phosphorSecondary : .phosphorAccent)
-                .disabled(manualURL.trimmingCharacters(in: .whitespaces).isEmpty)
+        VStack(spacing: Spacing.sm) {
+            TextField("immich.local, 192.168.1.10, or my.server.com", text: $manualAddress)
+                .textContentType(.URL)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .foregroundStyle(.phosphorPrimary)
+                .padding(Spacing.md)
+                .frame(minHeight: TapTarget.minimum)
+                .background(
+                    RoundedRectangle(cornerRadius: CornerRadius.medium, style: .continuous)
+                        .fill(Color.white.opacity(0.05))
+                )
+
+            VStack(spacing: 2) {
+                Text("For remote access, enter your Tailscale hostname or VPN address.")
+                Text("Immich runs on port 2283 by default.")
             }
+            .font(Typography.footnote)
+            .foregroundStyle(.phosphorTertiary)
+            .multilineTextAlignment(.center)
+
+            Button {
+                let trimmed = manualAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                HapticManager.selection()
+                onPick(normalizeImmichURL(trimmed))
+            } label: {
+                Text("Connect →")
+                    .font(Typography.headline)
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Color.phosphorAccent, in: Capsule())
+            }
+            .disabled(manualAddress.trimmingCharacters(in: .whitespaces).isEmpty)
+            .opacity(manualAddress.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
+
+            Button {
+                showQR = true
+            } label: {
+                Text("Scan QR code from Immich web")
+                    .font(Typography.caption)
+                    .foregroundStyle(.phosphorSecondary)
+            }
+            .padding(.top, Spacing.xs)
         }
     }
 
-    private var qrButton: some View {
-        Button {
-            showQR = true
-        } label: {
-            HStack {
-                Image(systemName: "qrcode.viewfinder")
-                Text("Scan QR code")
-            }
-            .font(Typography.subheadline)
-            .foregroundStyle(.phosphorAccent)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, Spacing.sm)
-            .background(Color.phosphorSurface, in: Capsule())
-        }
-        .accessibilityLabel("Scan a QR code to fill the server address")
-    }
-
-    private func parseURL(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func hostFromScanned(_ code: String) -> String? {
+        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed),
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https"
@@ -203,13 +249,45 @@ private struct DiscoveryStep: View {
     }
 }
 
-// MARK: - Step 2: Login (email + password)
+private struct PulsingSearchRow: View {
+    @State private var pulse = false
 
-private struct LoginStep: View {
-    @Binding var step: OnboardingView.Step
-    let serverURL: String
+    var body: some View {
+        HStack(spacing: Spacing.sm) {
+            Circle()
+                .fill(Color.phosphorSecondary)
+                .frame(width: 8, height: 8)
+            Text("Searching your network…")
+                .font(.system(size: 13))
+                .foregroundStyle(.phosphorSecondary)
+        }
+        .opacity(pulse ? 1.0 : 0.4)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
+        .accessibilityLabel("Searching your network for Immich servers")
+    }
+}
+
+// MARK: - Screen 2: Credentials
+
+private struct CredentialsScreen: View {
+    let initialAddress: String
+    let onBack: () -> Void
+    let onUseAPIKey: (String) -> Void
 
     @EnvironmentObject private var connectionManager: ConnectionManager
+
+    @State private var host: String
+    @State private var portText: String
+    @State private var useHTTPS: Bool
+    /// Until the user actually flips the HTTPS toggle we keep the address
+    /// scheme-less so the resolver can try https then http (Problem 1.6).
+    @State private var userForcedScheme = false
+    @State private var allowSelfSigned = false
+    @State private var showConnectionSettings = false
 
     @State private var email = ""
     @State private var password = ""
@@ -221,44 +299,83 @@ private struct LoginStep: View {
 
     private enum Field { case email, password }
 
+    init(initialAddress: String, onBack: @escaping () -> Void, onUseAPIKey: @escaping (String) -> Void) {
+        self.initialAddress = initialAddress
+        self.onBack = onBack
+        self.onUseAPIKey = onUseAPIKey
+        let parsed = Self.parse(initialAddress)
+        _host = State(initialValue: parsed.host)
+        _portText = State(initialValue: parsed.port)
+        // Visual default per spec ("Use HTTPS" on); it only forces a scheme
+        // once the user actually toggles it (userForcedScheme).
+        _useHTTPS = State(initialValue: true)
+    }
+
+    /// Reconstructs the address from the editable components so the three
+    /// connection-settings controls stay in sync with what gets stored.
+    /// Scheme-less until the user forces one via the HTTPS toggle, so the
+    /// resolver performs https→http autodetection.
+    private var effectiveURL: String {
+        let trimmedPort = portText.trimmingCharacters(in: .whitespaces)
+        let hostPort = trimmedPort.isEmpty ? host : "\(host):\(trimmedPort)"
+        if userForcedScheme {
+            return "\(useHTTPS ? "https" : "http")://\(hostPort)"
+        }
+        return hostPort
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.lg) {
-            header
+            backButton
+
+            Text("Sign in")
+                .font(Typography.wordmark)
+                .foregroundStyle(.phosphorPrimary)
+
+            serverPill
+
             fields
                 .modifier(ShakeEffect(amount: shake))
+
             signInButton
+
             if let errorMessage {
                 Text(errorMessage)
                     .font(Typography.footnote)
-                    .foregroundStyle(.phosphorDanger)
+                    .foregroundStyle(.phosphorError)
                     .transition(.opacity)
             }
+
+            orDivider
+            apiKeyButton
+            connectionSettings
+
             Spacer()
-            apiKeyFallback
         }
         .padding(Spacing.xl)
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            Button {
-                step = .discovery
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.phosphorAccent)
-            }
-            .accessibilityLabel("Back to discovery")
+    private var backButton: some View {
+        Button(action: onBack) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.phosphorAccent)
+        }
+        .accessibilityLabel("Back to server discovery")
+    }
 
-            Text("Sign in")
-                .font(Typography.displayTitle)
-                .foregroundStyle(.phosphorPrimary)
-            Text(serverURL)
+    private var serverPill: some View {
+        Button(action: onBack) {
+            Text(effectiveURL)
                 .font(Typography.caption)
                 .foregroundStyle(.phosphorSecondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.xs)
+                .background(Color.white.opacity(0.08), in: Capsule())
         }
+        .accessibilityLabel("Server \(effectiveURL). Tap to change.")
     }
 
     private var fields: some View {
@@ -271,21 +388,23 @@ private struct LoginStep: View {
                 .focused($focused, equals: .email)
                 .submitLabel(.next)
                 .onSubmit { focused = .password }
+                .foregroundStyle(.phosphorPrimary)
                 .padding(Spacing.md)
                 .frame(minHeight: TapTarget.minimum)
-                .background(Color.phosphorSurface, in: RoundedRectangle(cornerRadius: CornerRadius.small, style: .continuous))
-                .foregroundStyle(.phosphorPrimary)
+                .background(
+                    RoundedRectangle(cornerRadius: CornerRadius.medium, style: .continuous)
+                        .fill(Color.white.opacity(0.05))
+                )
 
             HStack(spacing: Spacing.sm) {
                 Group {
                     if showPassword {
                         TextField("Password", text: $password)
-                            .textContentType(.password)
                     } else {
                         SecureField("Password", text: $password)
-                            .textContentType(.password)
                     }
                 }
+                .textContentType(.password)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .focused($focused, equals: .password)
@@ -300,12 +419,14 @@ private struct LoginStep: View {
                 }
                 .accessibilityLabel(showPassword ? "Hide password" : "Show password")
             }
+            .foregroundStyle(.phosphorPrimary)
             .padding(Spacing.md)
             .frame(minHeight: TapTarget.minimum)
-            .background(Color.phosphorSurface, in: RoundedRectangle(cornerRadius: CornerRadius.small, style: .continuous))
-            .foregroundStyle(.phosphorPrimary)
+            .background(
+                RoundedRectangle(cornerRadius: CornerRadius.medium, style: .continuous)
+                    .fill(Color.white.opacity(0.05))
+            )
         }
-        .disabled(isSubmitting)
     }
 
     private var signInButton: some View {
@@ -313,7 +434,7 @@ private struct LoginStep: View {
             Task { await signIn() }
         } label: {
             ZStack {
-                Capsule().fill(.phosphorPrimary)
+                Capsule().fill(Color.phosphorAccent)
                 if isSubmitting {
                     ProgressView().tint(.black)
                 } else {
@@ -328,19 +449,66 @@ private struct LoginStep: View {
         .disabled(isSubmitting || email.isEmpty || password.isEmpty)
     }
 
-    private var apiKeyFallback: some View {
+    private var orDivider: some View {
+        HStack(spacing: Spacing.md) {
+            Rectangle().fill(Color.phosphorSeparator).frame(height: 1)
+            Text("or")
+                .font(Typography.caption)
+                .foregroundStyle(.phosphorTertiary)
+            Rectangle().fill(Color.phosphorSeparator).frame(height: 1)
+        }
+    }
+
+    private var apiKeyButton: some View {
         HStack {
             Spacer()
             Button {
-                step = .apiKey(serverURL: serverURL)
+                onUseAPIKey(effectiveURL)
             } label: {
-                Text("Use API Key instead →")
-                    .font(Typography.subheadline)
-                    .foregroundStyle(.phosphorAccent)
+                Text("Use API Key")
+                    .font(Typography.caption)
+                    .foregroundStyle(.phosphorSecondary)
             }
             Spacer()
         }
     }
+
+    private var connectionSettings: some View {
+        DisclosureGroup(isExpanded: $showConnectionSettings) {
+            VStack(alignment: .leading, spacing: Spacing.md) {
+                Toggle("Allow self-signed certificate", isOn: $allowSelfSigned)
+                    .font(Typography.subheadline)
+                    .foregroundStyle(.phosphorPrimary)
+                    .tint(.phosphorAccent)
+
+                HStack {
+                    Text("Port")
+                        .font(Typography.subheadline)
+                        .foregroundStyle(.phosphorPrimary)
+                    Spacer()
+                    TextField("2283", text: $portText)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 80)
+                        .foregroundStyle(.phosphorPrimary)
+                }
+
+                Toggle("Use HTTPS", isOn: $useHTTPS)
+                    .font(Typography.subheadline)
+                    .foregroundStyle(.phosphorPrimary)
+                    .tint(.phosphorAccent)
+                    .onChange(of: useHTTPS) { _, _ in userForcedScheme = true }
+            }
+            .padding(.top, Spacing.sm)
+        } label: {
+            Text("Connection settings")
+                .font(Typography.caption)
+                .foregroundStyle(.phosphorSecondary)
+        }
+        .tint(.phosphorSecondary)
+    }
+
+    // MARK: Actions
 
     private func signIn() async {
         focused = nil
@@ -348,143 +516,119 @@ private struct LoginStep: View {
         guard !trimmedEmail.isEmpty, !password.isEmpty else { return }
         isSubmitting = true
         errorMessage = nil
+        persistSelfSigned()
         defer { isSubmitting = false }
         do {
-            let response = try await ImmichAPI.login(
-                baseURL: serverURL,
+            let result = try await ImmichAPI.connectWithPassword(
+                address: effectiveURL,
                 email: trimmedEmail,
                 password: password
             )
             await MainActor.run {
-                connectionManager.connect(baseURL: serverURL, token: response.accessToken)
+                connectionManager.connect(
+                    baseURL: result.baseURL,
+                    token: result.token,
+                    prefix: result.prefix
+                )
                 HapticManager.notification(.success)
             }
         } catch let caught as ImmichError {
-            errorMessage = message(for: caught)
-            HapticManager.notification(.error)
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.35)) {
-                shake += 1
-            }
+            present(caught)
         } catch {
-            errorMessage = error.localizedDescription
-            HapticManager.notification(.error)
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.35)) {
-                shake += 1
-            }
+            present(.networkError(error))
         }
     }
 
-    private func message(for error: ImmichError) -> String {
+    /// Store the per-host self-signed preference BEFORE the probe runs, so the
+    /// URLSession delegate can read it during the TLS challenge.
+    private func persistSelfSigned() {
+        KeychainManager.set(
+            allowSelfSigned ? "1" : "0",
+            forKey: immichSelfSignedKey(forHost: host)
+        )
+    }
+
+    private func present(_ error: ImmichError) {
         switch error {
-        case .notConfigured: return "Server URL is missing or invalid."
-        case .unauthorized: return "Incorrect email or password."
-        case .networkError: return "Could not reach the server. Check the URL and your network."
-        case .decodingError: return "Server responded but the format wasn't recognized."
-        case .serverError(let code): return "Server returned HTTP \(code)."
+        case .unauthorized:
+            errorMessage = "Wrong email or password"
+        case .networkError:
+            errorMessage = "Could not reach server — check the address"
+        case .notConfigured:
+            errorMessage = "That address doesn't look right"
+        case .decodingError:
+            errorMessage = "The server responded unexpectedly"
+        case .serverError(let code):
+            errorMessage = "Server error (HTTP \(code))"
         }
+        HapticManager.notification(.error)
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.35)) { shake += 1 }
+    }
+
+    private static func parse(_ address: String) -> (host: String, port: String, https: Bool) {
+        let https = address.hasPrefix("https://")
+        var s = address
+        if s.hasPrefix("https://") { s.removeFirst(8) }
+        else if s.hasPrefix("http://") { s.removeFirst(7) }
+        while s.hasSuffix("/") { s.removeLast() }
+        if let colon = s.lastIndex(of: ":"),
+           // Only treat as port if everything after the colon is digits.
+           s[s.index(after: colon)...].allSatisfy(\.isNumber),
+           !s[s.index(after: colon)...].isEmpty {
+            let h = String(s[..<colon])
+            let p = String(s[s.index(after: colon)...])
+            return (h, p, https)
+        }
+        return (s, "2283", https)
     }
 }
 
-// MARK: - Step 3: API key fallback
+// MARK: - Screen 3: API key fallback
 
-private struct APIKeyStep: View {
-    @Binding var step: OnboardingView.Step
-    let serverURL: String
+private struct APIKeyScreen: View {
+    let initialAddress: String
+    let onBack: () -> Void
 
     @EnvironmentObject private var connectionManager: ConnectionManager
 
-    @State private var urlText: String
     @State private var apiKey = ""
     @State private var showKey = false
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     @State private var shake = 0
-    @FocusState private var focused: Field?
-
-    private enum Field { case url, apiKey }
-
-    init(step: Binding<OnboardingView.Step>, serverURL: String) {
-        self._step = step
-        self.serverURL = serverURL
-        self._urlText = State(initialValue: serverURL)
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.lg) {
-            header
-            fields
-                .modifier(ShakeEffect(amount: shake))
-            connectButton
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(Typography.footnote)
-                    .foregroundStyle(.phosphorDanger)
-                    .transition(.opacity)
-            }
-            Spacer()
-            HStack {
-                Spacer()
-                Button {
-                    step = .login(serverURL: urlText.trimmingCharacters(in: .whitespacesAndNewlines))
-                } label: {
-                    Text("← Back to sign in")
-                        .font(Typography.subheadline)
-                        .foregroundStyle(.phosphorAccent)
-                }
-                Spacer()
-            }
-        }
-        .padding(Spacing.xl)
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-            Button {
-                step = .login(serverURL: urlText.trimmingCharacters(in: .whitespacesAndNewlines))
-            } label: {
+            Button(action: onBack) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.phosphorAccent)
             }
             .accessibilityLabel("Back to sign in")
 
-            Text("API key")
-                .font(Typography.displayTitle)
+            Text("API Key")
+                .font(Typography.headline)
                 .foregroundStyle(.phosphorPrimary)
-            Text("For machine accounts or sharing access.")
-                .font(Typography.caption)
-                .foregroundStyle(.phosphorSecondary)
-        }
-    }
 
-    private var fields: some View {
-        VStack(spacing: Spacing.md) {
-            TextField("Server URL", text: $urlText)
-                .textContentType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
-                .focused($focused, equals: .url)
-                .submitLabel(.next)
-                .onSubmit { focused = .apiKey }
-                .padding(Spacing.md)
-                .frame(minHeight: TapTarget.minimum)
-                .background(Color.phosphorSurface, in: RoundedRectangle(cornerRadius: CornerRadius.small, style: .continuous))
-                .foregroundStyle(.phosphorPrimary)
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "link")
+                    .font(.system(size: 12))
+                Text("Find your API key in Immich web → Account Settings → API Keys.")
+            }
+            .font(Typography.caption)
+            .foregroundStyle(.phosphorSecondary)
 
             HStack(spacing: Spacing.sm) {
                 Group {
                     if showKey {
                         TextField("API Key", text: $apiKey)
-                            .textContentType(.password)
                     } else {
                         SecureField("API Key", text: $apiKey)
-                            .textContentType(.password)
                     }
                 }
+                .textContentType(.password)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .focused($focused, equals: .apiKey)
                 .submitLabel(.go)
                 .onSubmit { Task { await connect() } }
 
@@ -496,76 +640,86 @@ private struct APIKeyStep: View {
                 }
                 .accessibilityLabel(showKey ? "Hide API key" : "Show API key")
             }
+            .foregroundStyle(.phosphorPrimary)
             .padding(Spacing.md)
             .frame(minHeight: TapTarget.minimum)
-            .background(Color.phosphorSurface, in: RoundedRectangle(cornerRadius: CornerRadius.small, style: .continuous))
-            .foregroundStyle(.phosphorPrimary)
-        }
-        .disabled(isSubmitting)
-    }
+            .background(
+                RoundedRectangle(cornerRadius: CornerRadius.medium, style: .continuous)
+                    .fill(Color.white.opacity(0.05))
+            )
+            .modifier(ShakeEffect(amount: shake))
 
-    private var connectButton: some View {
-        Button {
-            Task { await connect() }
-        } label: {
-            ZStack {
-                Capsule().fill(.phosphorPrimary)
-                if isSubmitting {
-                    ProgressView().tint(.black)
-                } else {
-                    Text("Connect")
-                        .font(Typography.headline)
-                        .foregroundStyle(.black)
+            Button {
+                Task { await connect() }
+            } label: {
+                ZStack {
+                    Capsule().fill(Color.phosphorAccent)
+                    if isSubmitting {
+                        ProgressView().tint(.black)
+                    } else {
+                        Text("Connect")
+                            .font(Typography.headline)
+                            .foregroundStyle(.black)
+                    }
                 }
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 52)
+            .disabled(isSubmitting || apiKey.isEmpty)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(Typography.footnote)
+                    .foregroundStyle(.phosphorError)
+                    .transition(.opacity)
+            }
+
+            Spacer()
         }
-        .disabled(isSubmitting || urlText.isEmpty || apiKey.isEmpty)
+        .padding(Spacing.xl)
     }
 
     private func connect() async {
-        focused = nil
-        let trimmedURL = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedURL.isEmpty, !trimmedKey.isEmpty else { return }
+        guard !trimmedKey.isEmpty else { return }
         isSubmitting = true
         errorMessage = nil
         defer { isSubmitting = false }
         do {
-            let probe = try await ImmichAPI.probe(baseURL: trimmedURL, apiKey: trimmedKey)
-            guard probe.ok else {
-                errorMessage = "Server reachable but didn't respond as expected."
-                HapticManager.notification(.error)
-                return
-            }
+            let result = try await ImmichAPI.connectWithAPIKey(
+                address: initialAddress,
+                apiKey: trimmedKey
+            )
             await MainActor.run {
-                connectionManager.connect(baseURL: trimmedURL, apiKey: trimmedKey)
+                connectionManager.connect(
+                    baseURL: result.baseURL,
+                    apiKey: trimmedKey,
+                    prefix: result.prefix
+                )
                 HapticManager.notification(.success)
             }
         } catch let caught as ImmichError {
-            errorMessage = message(for: caught)
-            HapticManager.notification(.error)
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.35)) {
-                shake += 1
-            }
+            present(caught)
         } catch {
-            errorMessage = error.localizedDescription
-            HapticManager.notification(.error)
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.35)) {
-                shake += 1
-            }
+            present(.networkError(error))
         }
     }
 
-    private func message(for error: ImmichError) -> String {
+    private func present(_ error: ImmichError) {
         switch error {
-        case .notConfigured: return "URL or API key is missing."
-        case .unauthorized: return "The API key was rejected by the server."
-        case .networkError: return "Could not reach the server. Check the URL."
-        case .decodingError: return "Server responded but the format wasn't recognized."
-        case .serverError(let code): return "Server returned HTTP \(code)."
+        case .unauthorized:
+            errorMessage = "That API key was rejected"
+        case .networkError:
+            errorMessage = "Could not reach server — check the address"
+        case .notConfigured:
+            errorMessage = "That address doesn't look right"
+        case .decodingError:
+            errorMessage = "The server responded unexpectedly"
+        case .serverError(let code):
+            errorMessage = "Server error (HTTP \(code))"
         }
+        HapticManager.notification(.error)
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.35)) { shake += 1 }
     }
 }
 
@@ -597,12 +751,11 @@ struct DiscoveredServer: Identifiable, Hashable {
         return host
     }
 
-    var url: String {
-        let scheme = (port == 443 || port == 8443) ? "https" : "http"
-        if let port {
-            return "\(scheme)://\(host):\(port)"
-        }
-        return "\(scheme)://\(host)"
+    /// What we hand to the credentials screen — bare host[:port] with no
+    /// scheme, so the resolver can try https then http.
+    var onboardingAddress: String {
+        if let port { return "\(host):\(port)" }
+        return "\(host):2283"
     }
 }
 
@@ -654,30 +807,30 @@ final class MDNSDiscovery: ObservableObject {
         for result in results {
             guard case let .service(name, _, _, _) = result.endpoint else { continue }
 
-            // Match name containing "immich" OR a TXT record entry containing it.
+            // Match a service name containing "immich" OR a TXT record where
+            // key "app" == "immich" (or any entry mentioning immich).
             let nameMatch = name.localizedCaseInsensitiveContains("immich")
-            let txtMatch: Bool
-            switch result.metadata {
-            case .bonjour(let txt):
-                // NWTXTRecord is a Sequence of (key, Entry); match either a
-                // key or a string value containing "immich".
+            var txtMatch = false
+            if case let .bonjour(txt) = result.metadata {
                 txtMatch = txt.contains { element in
+                    if element.key.lowercased() == "app",
+                       case let .string(v) = element.value,
+                       v.localizedCaseInsensitiveContains("immich") {
+                        return true
+                    }
                     if element.key.localizedCaseInsensitiveContains("immich") {
                         return true
                     }
-                    if case let .string(value) = element.value,
-                       value.localizedCaseInsensitiveContains("immich") {
+                    if case let .string(v) = element.value,
+                       v.localizedCaseInsensitiveContains("immich") {
                         return true
                     }
                     return false
                 }
-            default:
-                txtMatch = false
             }
             guard nameMatch || txtMatch else { continue }
             guard !servers.contains(where: { $0.id == name }) else { continue }
 
-            // Add a placeholder entry immediately; resolve in the background.
             servers.append(DiscoveredServer(id: name, name: name, host: "\(name).local", port: nil))
             resolve(endpoint: result.endpoint, serviceName: name)
         }
@@ -706,12 +859,9 @@ final class MDNSDiscovery: ObservableObject {
     private func updateResolved(serviceName: String, endpoint: NWEndpoint) {
         var host = serviceName
         var port: UInt16?
-        switch endpoint {
-        case .hostPort(let h, let p):
+        if case let .hostPort(h, p) = endpoint {
             host = h.debugDescription
             port = p.rawValue
-        default:
-            break
         }
         if let i = servers.firstIndex(where: { $0.id == serviceName }) {
             servers[i] = DiscoveredServer(id: serviceName, name: serviceName, host: host, port: port)

@@ -35,13 +35,58 @@ enum ImmichError: Error, LocalizedError {
     }
 }
 
+// MARK: - Self-signed TLS handling
+
+/// Per-server "allow self-signed certificate" Keychain key. The host is
+/// sanitized so it's a valid account string.
+func immichSelfSignedKey(forHost host: String) -> String {
+    let safe = host.lowercased().replacingOccurrences(
+        of: "[^a-z0-9.-]", with: "_", options: .regularExpression
+    )
+    return "immich_allow_self_signed_\(safe)"
+}
+
+/// URLSession delegate that optionally trusts self-signed server certs for a
+/// host the user has explicitly opted into (home servers with a local CA).
+final class ImmichAPIDelegate: NSObject, URLSessionDelegate {
+    func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust
+        else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        let host = challenge.protectionSpace.host
+        let allowed = KeychainManager.get(forKey: immichSelfSignedKey(forHost: host)) == "1"
+        if allowed {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            completionHandler(.performDefaultHandling, nil)
+        }
+    }
+}
+
 // MARK: - Client
 
 /// REST client for the Immich API.
 ///
-/// Credentials live in `UserDefaults` (written by `ConnectionManager`) and are
+/// Credentials live in the Keychain (written by `ConnectionManager`) and are
 /// read fresh on every request, so reconfiguring the connection takes effect
 /// immediately without re-injecting anything into this singleton.
+///
+/// Remote access: enter any reachable hostname — Tailscale MagicDNS names,
+/// VPN addresses, and reverse proxy domains all work as-is. There is no
+/// NAT-traversal magic; a hostname that resolves and routes is sufficient.
+/// For HTTPS with self-signed certs, enable "Allow self-signed certificate"
+/// in connection settings.
+///
+/// API prefix: Immich v1.91+ serves every endpoint under `/api`. The working
+/// prefix ("" for pre-v1.91, "/api" otherwise) is detected during onboarding
+/// and persisted in the Keychain so all later requests target the right path.
 final class ImmichAPI {
 
     static let shared = ImmichAPI()
@@ -53,9 +98,22 @@ final class ImmichAPI {
         static let baseURL = "immich_base_url"
         static let apiKey = "immich_api_key"
         static let accessToken = "immich_access_token"
+        static let apiPrefix = "immich_api_prefix"
     }
 
-    private let session: URLSession = .shared
+    /// Timeout for onboarding probes — short so a wrong address fails fast.
+    static let probeTimeout: TimeInterval = 8
+
+    /// Custom session (NOT `.shared`) so the self-signed-cert delegate can be
+    /// installed. `.shared` cannot have a delegate assigned after init. A
+    /// non-lazy `let` (vs. the lazy var originally sketched) is used because
+    /// the singleton is hit from many concurrent async contexts and `lazy`
+    /// initialization is not thread-safe.
+    let session: URLSession = URLSession(
+        configuration: .default,
+        delegate: ImmichAPIDelegate(),
+        delegateQueue: nil
+    )
 
     // MARK: Credentials (read fresh every call)
 
@@ -77,6 +135,28 @@ final class ImmichAPI {
 
     private var accessToken: String? {
         KeychainManager.get(forKey: KeychainKey.accessToken)
+    }
+
+    /// "" (pre-v1.91) or "/api" (default). Normalized so it's empty or a
+    /// single leading-slash segment with no trailing slash.
+    private var apiPrefix: String {
+        guard let raw = KeychainManager.get(forKey: KeychainKey.apiPrefix) else {
+            return "/api"
+        }
+        var p = raw.trimmingCharacters(in: .whitespaces)
+        while p.hasSuffix("/") { p.removeLast() }
+        if p.isEmpty { return "" }
+        if !p.hasPrefix("/") { p = "/" + p }
+        return p
+    }
+
+    /// `baseURL` with the detected API prefix appended. All endpoint paths are
+    /// resolved against this so callers never embed `/api` themselves.
+    private var baseAPIURL: URL? {
+        guard let base = baseURL else { return nil }
+        guard !apiPrefix.isEmpty else { return base }
+        return base.appendingPathComponent(apiPrefix.hasPrefix("/")
+            ? String(apiPrefix.dropFirst()) : apiPrefix)
     }
 
     var isConfigured: Bool { baseURL != nil && (accessToken != nil || apiKey != nil) }
@@ -115,7 +195,7 @@ final class ImmichAPI {
     // MARK: Core request
 
     private func makeURL(path: String, query: [URLQueryItem]?) throws -> URL {
-        guard let base = baseURL else { throw ImmichError.notConfigured }
+        guard let base = baseAPIURL else { throw ImmichError.notConfigured }
         guard var components = URLComponents(
             url: base.appendingPathComponent(path),
             resolvingAgainstBaseURL: false
@@ -617,7 +697,7 @@ final class ImmichAPI {
         fileModifiedAt: Date,
         isFavorite: Bool = false
     ) async throws -> ImmichAsset {
-        guard let base = baseURL else { throw ImmichError.notConfigured }
+        guard let base = baseAPIURL else { throw ImmichError.notConfigured }
         let url = base.appendingPathComponent("assets")
         let boundary = "Boundary-\(UUID().uuidString)"
 
@@ -738,87 +818,98 @@ final class ImmichAPI {
         return ping.res == "pong"
     }
 
-    /// Test arbitrary credentials WITHOUT touching the stored ones. Used by
-    /// AddServerView so probing a new server doesn't clobber the active
-    /// session. Returns (pinged ok, version string, round-trip ms).
-    static func probe(baseURL: String, apiKey: String) async throws -> (ok: Bool, version: String?, latencyMs: Int) {
-        let trimmedURL: String = {
-            var s = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            while s.hasSuffix("/") { s.removeLast() }
-            return s
-        }()
-        guard !trimmedURL.isEmpty, !apiKey.isEmpty,
-              let base = URL(string: trimmedURL)
-        else { throw ImmichError.notConfigured }
+    // MARK: - Connection resolution (onboarding)
 
-        func makeRequest(path: String) -> URLRequest {
-            var r = URLRequest(url: base.appendingPathComponent(path))
-            r.httpMethod = "GET"
-            r.timeoutInterval = 30
-            r.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-            r.setValue("application/json", forHTTPHeaderField: "Accept")
-            return r
-        }
-
-        let start = Date()
-        do {
-            let (pingData, pingResponse) = try await URLSession.shared.data(for: makeRequest(path: "server/ping"))
-            guard let http = pingResponse as? HTTPURLResponse else {
-                throw ImmichError.serverError(-1)
-            }
-            switch http.statusCode {
-            case 200..<300: break
-            case 401, 403: throw ImmichError.unauthorized
-            default: throw ImmichError.serverError(http.statusCode)
-            }
-            let pong = try JSONDecoder().decode(PingResponse.self, from: pingData)
-            let latencyMs = Int(Date().timeIntervalSince(start) * 1_000)
-            guard pong.res == "pong" else { return (false, nil, latencyMs) }
-
-            // Version is supplementary — failure here doesn't invalidate the probe.
-            var version: String?
-            if let (vData, vResp) = try? await URLSession.shared.data(for: makeRequest(path: "server/version")),
-               let http = vResp as? HTTPURLResponse,
-               (200..<300).contains(http.statusCode),
-               let decoded = try? JSONDecoder().decode(ServerVersion.self, from: vData) {
-                version = "\(decoded.major).\(decoded.minor).\(decoded.patch)"
-            }
-            return (true, version, latencyMs)
-        } catch let caught as ImmichError {
-            throw caught
-        } catch {
-            throw ImmichError.networkError(error)
-        }
+    /// A reachable Immich endpoint: the base URL (scheme + host[:port], no
+    /// trailing slash) and the API prefix that responded ("" or "/api").
+    struct ResolvedConnection {
+        let baseURL: String
+        let prefix: String
     }
 
-    /// Login with email + password. Returns the decoded auth response on
-    /// success; throws `ImmichError.unauthorized` on 401.
-    static func login(baseURL: String, email: String, password: String) async throws -> AuthResponse {
-        let trimmedURL: String = {
-            var s = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            while s.hasSuffix("/") { s.removeLast() }
-            return s
-        }()
-        guard !trimmedURL.isEmpty, let base = URL(string: trimmedURL)
-        else { throw ImmichError.notConfigured }
+    /// Strips any scheme and trailing slashes, returning bare host[:port].
+    private static func bareHost(_ s: String) -> String {
+        var h = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if h.hasPrefix("https://") { h.removeFirst(8) }
+        else if h.hasPrefix("http://") { h.removeFirst(7) }
+        while h.hasSuffix("/") { h.removeLast() }
+        return h
+    }
 
-        struct LoginRequest: Encodable {
-            let email: String
-            let password: String
+    /// Hits `{base}{prefix}/server/ping` (no auth) with the short probe
+    /// timeout, trying "/api" first then root. Returns the working prefix or
+    /// nil if neither responds with a pong.
+    static func detectAPIPrefix(forBase trimmedBase: String) async -> String? {
+        guard let base = URL(string: trimmedBase) else { return nil }
+        for prefix in ["/api", ""] {
+            var url = base
+            if !prefix.isEmpty { url.appendPathComponent("api") }
+            url.appendPathComponent("server/ping")
+            var r = URLRequest(url: url)
+            r.httpMethod = "GET"
+            r.timeoutInterval = probeTimeout
+            r.setValue("application/json", forHTTPHeaderField: "Accept")
+            guard let (data, resp) = try? await ImmichAPI.shared.session.data(for: r),
+                  let http = resp as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode),
+                  let pong = try? JSONDecoder().decode(PingResponse.self, from: data),
+                  pong.res == "pong"
+            else { continue }
+            return prefix
         }
-        var req = URLRequest(url: base.appendingPathComponent("auth/login"))
+        return nil
+    }
+
+    /// Resolves a user-typed address to a reachable base + prefix. If the
+    /// user gave no scheme, https is tried before http (8s each). If they
+    /// gave one, it's respected. Returns nil if nothing answered.
+    static func resolveConnection(address raw: String) async -> ResolvedConnection? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let hadScheme = trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://")
+
+        let bases: [String]
+        if hadScheme {
+            var s = trimmed
+            while s.hasSuffix("/") { s.removeLast() }
+            bases = [s]
+        } else {
+            let host = bareHost(trimmed)
+            bases = ["https://\(host)", "http://\(host)"]
+        }
+        for base in bases {
+            if let prefix = await detectAPIPrefix(forBase: base) {
+                return ResolvedConnection(baseURL: base, prefix: prefix)
+            }
+        }
+        return nil
+    }
+
+    /// POSTs `{base}{prefix}/auth/login`. Throws `.unauthorized` on 401.
+    static func login(
+        baseURL: String,
+        prefix: String,
+        email: String,
+        password: String
+    ) async throws -> AuthResponse {
+        guard let root = URL(string: baseURL) else { throw ImmichError.notConfigured }
+        var url = root
+        if !prefix.isEmpty {
+            url.appendPathComponent(prefix.hasPrefix("/") ? String(prefix.dropFirst()) : prefix)
+        }
+        url.appendPathComponent("auth/login")
+
+        struct LoginRequest: Encodable { let email: String; let password: String }
+        var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.timeoutInterval = 30
+        req.timeoutInterval = 15
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.httpBody = try JSONEncoder().encode(LoginRequest(email: email, password: password))
 
         let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await URLSession.shared.data(for: req)
-        } catch {
-            throw ImmichError.networkError(error)
-        }
+        do { (data, response) = try await ImmichAPI.shared.session.data(for: req) }
+        catch { throw ImmichError.networkError(error) }
         guard let http = response as? HTTPURLResponse else { throw ImmichError.serverError(-1) }
         switch http.statusCode {
         case 200..<300:
@@ -829,7 +920,122 @@ final class ImmichAPI {
         }
     }
 
-    /// Validate a bearer token. Returns `true` if the server responds with 200.
+    /// Full email/password connect: resolve a reachable base + prefix, then
+    /// authenticate. Returns everything the caller must persist.
+    static func connectWithPassword(
+        address: String,
+        email: String,
+        password: String
+    ) async throws -> (token: String, baseURL: String, prefix: String) {
+        guard let resolved = await resolveConnection(address: address) else {
+            throw ImmichError.networkError(URLError(.cannotConnectToHost))
+        }
+        let auth = try await login(
+            baseURL: resolved.baseURL,
+            prefix: resolved.prefix,
+            email: email,
+            password: password
+        )
+        return (auth.accessToken, resolved.baseURL, resolved.prefix)
+    }
+
+    /// Full API-key connect: resolve, then verify the key with an authed ping.
+    static func connectWithAPIKey(
+        address: String,
+        apiKey: String
+    ) async throws -> (baseURL: String, prefix: String) {
+        guard let resolved = await resolveConnection(address: address) else {
+            throw ImmichError.networkError(URLError(.cannotConnectToHost))
+        }
+        guard let root = URL(string: resolved.baseURL) else {
+            throw ImmichError.notConfigured
+        }
+        var url = root
+        if !resolved.prefix.isEmpty {
+            url.appendPathComponent(resolved.prefix.hasPrefix("/")
+                ? String(resolved.prefix.dropFirst()) : resolved.prefix)
+        }
+        url.appendPathComponent("server/ping")
+        var r = URLRequest(url: url)
+        r.httpMethod = "GET"
+        r.timeoutInterval = probeTimeout
+        r.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (_, response): (Data, URLResponse)
+        do { (_, response) = try await ImmichAPI.shared.session.data(for: r) }
+        catch { throw ImmichError.networkError(error) }
+        guard let http = response as? HTTPURLResponse else { throw ImmichError.serverError(-1) }
+        switch http.statusCode {
+        case 200..<300: return (resolved.baseURL, resolved.prefix)
+        case 401, 403: throw ImmichError.unauthorized
+        default: throw ImmichError.serverError(http.statusCode)
+        }
+    }
+
+    /// Test arbitrary API-key credentials WITHOUT touching stored ones. Used
+    /// by AddServerView. Tries "/api" then root. Returns (ok, version, ms).
+    static func probe(baseURL: String, apiKey: String) async throws -> (ok: Bool, version: String?, latencyMs: Int) {
+        let trimmedURL: String = {
+            var s = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            while s.hasSuffix("/") { s.removeLast() }
+            return s
+        }()
+        guard !trimmedURL.isEmpty, !apiKey.isEmpty,
+              let base = URL(string: trimmedURL)
+        else { throw ImmichError.notConfigured }
+
+        func request(prefix: String, path: String) -> URLRequest {
+            var url = base
+            if !prefix.isEmpty { url.appendPathComponent("api") }
+            url.appendPathComponent(path)
+            var r = URLRequest(url: url)
+            r.httpMethod = "GET"
+            r.timeoutInterval = probeTimeout
+            r.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+            r.setValue("application/json", forHTTPHeaderField: "Accept")
+            return r
+        }
+
+        let start = Date()
+        var lastError: ImmichError = .serverError(-1)
+        for prefix in ["/api", ""] {
+            do {
+                let (pingData, pingResponse) = try await ImmichAPI.shared.session.data(
+                    for: request(prefix: prefix, path: "server/ping")
+                )
+                guard let http = pingResponse as? HTTPURLResponse else {
+                    lastError = .serverError(-1); continue
+                }
+                switch http.statusCode {
+                case 200..<300: break
+                case 401, 403: throw ImmichError.unauthorized
+                default: lastError = .serverError(http.statusCode); continue
+                }
+                guard let pong = try? JSONDecoder().decode(PingResponse.self, from: pingData),
+                      pong.res == "pong" else { lastError = .serverError(-1); continue }
+                let latencyMs = Int(Date().timeIntervalSince(start) * 1_000)
+
+                var version: String?
+                if let (vData, vResp) = try? await ImmichAPI.shared.session.data(
+                    for: request(prefix: prefix, path: "server/version")
+                ),
+                   let http = vResp as? HTTPURLResponse,
+                   (200..<300).contains(http.statusCode),
+                   let decoded = try? JSONDecoder().decode(ServerVersion.self, from: vData) {
+                    version = "\(decoded.major).\(decoded.minor).\(decoded.patch)"
+                }
+                return (true, version, latencyMs)
+            } catch let caught as ImmichError {
+                if case .unauthorized = caught { throw caught }
+                lastError = caught
+            } catch {
+                lastError = .networkError(error)
+            }
+        }
+        throw lastError
+    }
+
+    /// Validate a bearer token. Tries "/api" then root. Returns true on 200.
     static func validateToken(baseURL: String, token: String) async throws -> Bool {
         let trimmedURL: String = {
             var s = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -839,46 +1045,22 @@ final class ImmichAPI {
         guard !trimmedURL.isEmpty, let base = URL(string: trimmedURL)
         else { throw ImmichError.notConfigured }
 
-        var req = URLRequest(url: base.appendingPathComponent("auth/validateToken"))
-        req.httpMethod = "GET"
-        req.timeoutInterval = 30
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        let (_, response): (Data, URLResponse)
-        do { (_, response) = try await URLSession.shared.data(for: req) }
-        catch { throw ImmichError.networkError(error) }
-        guard let http = response as? HTTPURLResponse else { return false }
-        return http.statusCode == 200
-    }
-
-    /// Probe with email + password instead of an API key. Authenticates via
-    /// the login endpoint and fetches the server version for supplementary info.
-    static func probe(baseURL: String, email: String, password: String) async throws -> (ok: Bool, version: String?, latencyMs: Int) {
-        let start = Date()
-        let auth = try await login(baseURL: baseURL, email: email, password: password)
-        let latencyMs = Int(Date().timeIntervalSince(start) * 1_000)
-
-        let trimmedURL: String = {
-            var s = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            while s.hasSuffix("/") { s.removeLast() }
-            return s
-        }()
-        guard let base = URL(string: trimmedURL) else { return (true, nil, latencyMs) }
-
-        var vReq = URLRequest(url: base.appendingPathComponent("server/version"))
-        vReq.httpMethod = "GET"
-        vReq.setValue("Bearer \(auth.accessToken)", forHTTPHeaderField: "Authorization")
-        vReq.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        var version: String?
-        if let (vData, vResp) = try? await URLSession.shared.data(for: vReq),
-           let http = vResp as? HTTPURLResponse,
-           (200..<300).contains(http.statusCode),
-           let decoded = try? JSONDecoder().decode(ServerVersion.self, from: vData) {
-            version = "\(decoded.major).\(decoded.minor).\(decoded.patch)"
+        for prefix in ["/api", ""] {
+            var url = base
+            if !prefix.isEmpty { url.appendPathComponent("api") }
+            url.appendPathComponent("auth/validateToken")
+            var req = URLRequest(url: url)
+            req.httpMethod = "GET"
+            req.timeoutInterval = probeTimeout
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            if let (_, response) = try? await ImmichAPI.shared.session.data(for: req),
+               let http = response as? HTTPURLResponse,
+               http.statusCode == 200 {
+                return true
+            }
         }
-        return (true, version, latencyMs)
+        return false
     }
 
     func fetchServerVersion() async throws -> String {

@@ -45,8 +45,10 @@ final class ConnectionManager: ObservableObject {
 
     /// Persist API-key credentials and mark the connection ready. The
     /// `connect(baseURL:apiKey:)` / `connect(baseURL:token:)` overloads are the
-    /// canonical entry points for the new onboarding flow.
-    func connect(baseURL: String, apiKey: String) {
+    /// canonical entry points for the new onboarding flow. `prefix` is the
+    /// API path prefix the server answered on ("" or "/api"); it defaults to
+    /// "/api" (modern Immich) for legacy callers that don't detect it.
+    func connect(baseURL: String, apiKey: String, prefix: String = "/api") {
         let trimmedURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -54,6 +56,7 @@ final class ConnectionManager: ObservableObject {
         self.apiKey = trimmedKey
         KeychainManager.set(trimmedURL, forKey: ImmichAPI.KeychainKey.baseURL)
         KeychainManager.set(trimmedKey, forKey: ImmichAPI.KeychainKey.apiKey)
+        KeychainManager.set(prefix, forKey: ImmichAPI.KeychainKey.apiPrefix)
         // A new API key supersedes any previously-stored bearer token.
         KeychainManager.delete(forKey: ImmichAPI.KeychainKey.accessToken)
         isConfigured = !trimmedURL.isEmpty && !trimmedKey.isEmpty
@@ -61,7 +64,7 @@ final class ConnectionManager: ObservableObject {
     }
 
     /// Persist bearer-token credentials (from email + password sign-in).
-    func connect(baseURL: String, token: String) {
+    func connect(baseURL: String, token: String, prefix: String = "/api") {
         let trimmedURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -70,6 +73,7 @@ final class ConnectionManager: ObservableObject {
         apiKey = ""
         KeychainManager.set(trimmedURL, forKey: ImmichAPI.KeychainKey.baseURL)
         KeychainManager.set(trimmedToken, forKey: ImmichAPI.KeychainKey.accessToken)
+        KeychainManager.set(prefix, forKey: ImmichAPI.KeychainKey.apiPrefix)
         KeychainManager.delete(forKey: ImmichAPI.KeychainKey.apiKey)
         isConfigured = !trimmedURL.isEmpty && !trimmedToken.isEmpty
         isConnected = isConfigured
@@ -108,6 +112,7 @@ final class ConnectionManager: ObservableObject {
         KeychainManager.delete(forKey: ImmichAPI.KeychainKey.baseURL)
         KeychainManager.delete(forKey: ImmichAPI.KeychainKey.apiKey)
         KeychainManager.delete(forKey: ImmichAPI.KeychainKey.accessToken)
+        KeychainManager.delete(forKey: ImmichAPI.KeychainKey.apiPrefix)
         serverURL = ""
         apiKey = ""
         isConfigured = false

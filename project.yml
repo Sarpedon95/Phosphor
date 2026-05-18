@@ -112,6 +112,12 @@ targets:
         NSPhotoLibraryAddUsageDescription: "Phosphor saves photos and videos to your photo library."
         NSPhotoLibraryUsageDescription: "Phosphor accesses your photo library to back up and manage media."
         NSCameraUsageDescription: "Phosphor uses the camera to capture and upload media."
+        NSLocalNetworkUsageDescription: "Phosphor uses your local network to find your Immich server automatically."
+        # Required for NWBrowser to return results on iOS 14+ — without the
+        # browsed service type declared here, mDNS discovery silently finds
+        # nothing.
+        NSBonjourServices:
+          - _http._tcp
 
   PhosphorWidgets:
     type: app-extension

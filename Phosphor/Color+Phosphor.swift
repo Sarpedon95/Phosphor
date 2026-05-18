@@ -24,6 +24,10 @@ extension ShapeStyle where Self == Color {
     static var phosphorPrimary: Color { Color.white }
     /// Alias of `phosphorDestructive`.
     static var phosphorDanger: Color { Color.red }
+    /// Tertiary text — hints, footnotes, the dimmest legible tone.
+    static var phosphorTertiary: Color { Color(white: 0.35) }
+    /// Error text accent (login failures, unreachable server).
+    static var phosphorError: Color { Color(red: 1.0, green: 0.32, blue: 0.32) }
     /// Subtle separator / hairline.
     static var phosphorSeparator: Color { Color(white: 0.16) }
     /// Shimmer placeholder base tone.
