@@ -363,16 +363,54 @@ final class ImmichAPI {
         return response.assets.items
     }
 
-    /// Lightweight on-this-day query: same month/day across all years.
-    func fetchOnThisDay(month: Int, day: Int) async throws -> [ImmichAsset] {
-        // Immich /search/metadata doesn't support month/day directly; we fetch
-        // a generous page and filter client-side. Best-effort.
-        let recent = try await searchFiltered(page: 1, size: 250)
+    /// On-this-day query that fans out one /search/metadata request per year
+    /// in the user's library range. Up to 10 requests run concurrently via
+    /// TaskGroup. Results are merged, sorted newest-first, and capped at 100.
+    func fetchOnThisDay(
+        month: Int,
+        day: Int,
+        earliestYear: Int = Calendar.current.component(.year, from: Date()) - 10
+    ) async throws -> [ImmichAsset] {
+        let currentYear = Calendar.current.component(.year, from: Date())
+        // Skip the current year — "on this day" looks at prior years only.
+        guard earliestYear < currentYear else { return [] }
+        let years = Array(earliestYear...(currentYear - 1)).reversed()
+
         let calendar = Calendar.current
-        return recent.filter { asset in
-            let comps = calendar.dateComponents([.month, .day], from: asset.localDateTime)
-            return comps.month == month && comps.day == day
+        let chunkSize = 10
+        var collected: [ImmichAsset] = []
+
+        for chunk in stride(from: 0, to: years.count, by: chunkSize) {
+            let slice = Array(years)[chunk..<min(chunk + chunkSize, years.count)]
+            let results = try await withThrowingTaskGroup(of: [ImmichAsset].self) { group in
+                for year in slice {
+                    guard let dayStart = calendar.date(from: DateComponents(year: year, month: month, day: day)),
+                          let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)
+                    else { continue }
+                    group.addTask {
+                        try await self.searchFiltered(
+                            takenAfter: dayStart,
+                            takenBefore: dayEnd,
+                            page: 1,
+                            size: 50
+                        )
+                    }
+                }
+                var combined: [ImmichAsset] = []
+                for try await batch in group {
+                    combined.append(contentsOf: batch)
+                }
+                return combined
+            }
+            collected.append(contentsOf: results)
+            if collected.count >= 100 { break }
         }
+
+        return Array(
+            collected
+                .sorted { $0.localDateTime > $1.localDateTime }
+                .prefix(100)
+        )
     }
 
     // MARK: - Album patch
@@ -628,9 +666,40 @@ final class ImmichAPI {
         return try await send(req)
     }
 
+    // MARK: - Users / sharing
+
+    func fetchUsers(query: String) async throws -> [ImmichUser] {
+        var queryItems: [URLQueryItem] = []
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            queryItems.append(URLQueryItem(name: "q", value: trimmed))
+        }
+        let users: [ImmichUser] = try await request("users", query: queryItems.isEmpty ? nil : queryItems)
+        return users
+    }
+
+    func shareAlbum(id: String, userIds: [String]) async throws {
+        struct Body: Encodable { let sharedUserIds: [String] }
+        let body = try JSONEncoder().encode(Body(sharedUserIds: userIds))
+        try await requestVoid("albums/\(id)/users", method: "PUT", body: body)
+    }
+
+    func unshareAlbum(id: String, userId: String) async throws {
+        try await requestVoid("albums/\(id)/user/\(userId)", method: "DELETE")
+    }
+
     func fetchPeople() async throws -> [Person] {
         let response: PeopleResponse = try await request("people")
         return response.people
+    }
+
+    /// Merge `sourceId` into `destinationId`. Endpoint availability varies by
+    /// Immich version — `serverError(404)` indicates the server doesn't
+    /// support merging.
+    func mergePerson(sourceId: String, destinationId: String) async throws {
+        struct Body: Encodable { let mergedIntoPersonId: String }
+        let body = try JSONEncoder().encode(Body(mergedIntoPersonId: destinationId))
+        try await requestVoid("people/\(sourceId)", method: "PATCH", body: body)
     }
 
     /// `PATCH /people/{id}` — rename or hide a recognized face.
@@ -639,6 +708,16 @@ final class ImmichAPI {
             UpdatePersonRequest(name: name, isHidden: isHidden)
         )
         return try await request("people/\(id)", method: "PATCH", body: body)
+    }
+
+    func toggleMemorySaved(id: String, saved: Bool) async throws {
+        struct Body: Encodable { let isSaved: Bool }
+        let body = try JSONEncoder().encode(Body(isSaved: saved))
+        try await requestVoid("memories/\(id)", method: "PUT", body: body)
+    }
+
+    func deleteMemory(id: String) async throws {
+        try await requestVoid("memories/\(id)", method: "DELETE")
     }
 
     func fetchMemories() async throws -> [ImmichMemory] {

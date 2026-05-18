@@ -12,12 +12,14 @@ struct PhosphorBackupActivityAttributes: ActivityAttributes {
         public var total: Int
         public var currentFileName: String
         public var isFailed: Bool
+        public var etaString: String?
 
-        public init(uploaded: Int, total: Int, currentFileName: String, isFailed: Bool) {
+        public init(uploaded: Int, total: Int, currentFileName: String, isFailed: Bool, etaString: String? = nil) {
             self.uploaded = uploaded
             self.total = total
             self.currentFileName = currentFileName
             self.isFailed = isFailed
+            self.etaString = etaString
         }
     }
 

@@ -95,6 +95,7 @@ final class EditingViewModel: ObservableObject {
     @Published private(set) var editHistory: [EditAdjustments] = []
     @Published private(set) var redoStack: [EditAdjustments] = []
     @Published var selectedPreset: String?
+    @Published private(set) var lastAppliedPreset: EditPreset?
     @Published private(set) var userPresets: [EditPreset] = []
 
     private var screenResImage: UIImage?
@@ -177,6 +178,7 @@ final class EditingViewModel: ObservableObject {
 
     func applyPreset(_ preset: EditPreset, intensity: Double) {
         selectedPreset = preset.name
+        lastAppliedPreset = preset
         let blended = Self.lerp(.identity, preset.adjustments, t: intensity)
         updateAdjustments(blended)
     }

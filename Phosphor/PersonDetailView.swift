@@ -11,6 +11,9 @@ struct PersonDetailView: View {
     @State private var selection: PhotoSelection?
     @State private var isEditingName = false
     @State private var nameDraft = ""
+    @State private var showMergePicker = false
+    @State private var mergeTarget: Person?
+    @State private var mergeError: String?
 
     init(person: Person) {
         self.person = person
@@ -55,6 +58,13 @@ struct PersonDetailView: View {
                 .accessibilityElement(children: .combine)
             } else {
                 ScrollView {
+                    if let formattedBirth = formattedBirthDate {
+                        Text("Born \(formattedBirth)")
+                            .font(Typography.subheadline)
+                            .foregroundStyle(.phosphorSecondary)
+                            .padding(.top, Spacing.s)
+                            .accessibilityLabel("Born \(formattedBirth)")
+                    }
                     LazyVGrid(columns: columns, spacing: 2) {
                         ForEach(assets) { asset in
                             AssetGridCell(asset: asset)
@@ -72,8 +82,47 @@ struct PersonDetailView: View {
         }
         .navigationTitle("")   // custom title via toolbar so the tap-to-rename works.
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .principal) { titleField } }
+        .toolbar {
+            ToolbarItem(placement: .principal) { titleField }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showMergePicker = true
+                } label: {
+                    Image(systemName: "person.2.crop.square.stack")
+                }
+                .accessibilityLabel("Merge with another person")
+            }
+        }
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .sheet(isPresented: $showMergePicker) {
+            PersonPickerView(excludePersonId: displayPerson.id) { picked in
+                showMergePicker = false
+                mergeTarget = picked
+            }
+        }
+        .alert("Merge \(displayPerson.displayName) into \(mergeTarget?.displayName ?? "")?",
+               isPresented: Binding(
+                get: { mergeTarget != nil },
+                set: { if !$0 { mergeTarget = nil } }
+               ),
+               presenting: mergeTarget) { target in
+            Button("Cancel", role: .cancel) { mergeTarget = nil }
+            Button("Merge", role: .destructive) {
+                Task { await mergeInto(target) }
+            }
+        } message: { _ in
+            Text("This cannot be undone.")
+        }
+        .alert("Merge failed",
+               isPresented: Binding(
+                get: { mergeError != nil },
+                set: { if !$0 { mergeError = nil } }
+               ),
+               presenting: mergeError) { _ in
+            Button("OK", role: .cancel) { mergeError = nil }
+        } message: { message in
+            Text(message)
+        }
         .task { if assets.isEmpty { await load() } }
         .fullScreenCover(item: $selection) { sel in
             PhotoDetailView(assets: sel.assets, selectedIndex: sel.index) { change in
@@ -127,6 +176,52 @@ struct PersonDetailView: View {
         guard let index = assets.firstIndex(where: { $0.id == asset.id }) else { return }
         HapticManager.selection()
         selection = PhotoSelection(assets: assets, index: index)
+    }
+
+    private var formattedBirthDate: String? {
+        guard let raw = displayPerson.birthDate, !raw.isEmpty else { return nil }
+        let isoFractional = ISO8601DateFormatter()
+        isoFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        // Also try plain yyyy-MM-dd (what Immich often returns for birthdates).
+        let date: Date? = isoFractional.date(from: raw)
+            ?? iso.date(from: raw)
+            ?? Self.dayFormatter.date(from: raw)
+        guard let date else { return nil }
+        return Self.displayFormatter.string(from: date)
+    }
+
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    private static let displayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .long
+        return f
+    }()
+
+    private func mergeInto(_ target: Person) async {
+        do {
+            try await ImmichAPI.shared.mergePerson(
+                sourceId: displayPerson.id,
+                destinationId: target.id
+            )
+            HapticManager.notification(.success)
+            mergeTarget = nil
+        } catch ImmichError.serverError(404) {
+            mergeError = "Your Immich server version doesn't support merging faces."
+            mergeTarget = nil
+            HapticManager.notification(.error)
+        } catch {
+            mergeError = error.localizedDescription
+            mergeTarget = nil
+            HapticManager.notification(.error)
+        }
     }
 
     private func saveName() async {

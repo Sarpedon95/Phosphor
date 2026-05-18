@@ -62,6 +62,7 @@ struct AssetGridCell: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
+        .accessibilityHint("Double tap to open")
         .accessibilityAddTraits(.isImage)
     }
 

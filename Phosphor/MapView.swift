@@ -7,6 +7,12 @@ final class MapViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published var error: ImmichError?
 
+    /// Optional client-side date filter. Markers carry no date, so filtering
+    /// resolves each marker's asset date lazily (cached) when a range is set.
+    @Published var dateFrom: Date?
+    @Published var dateTo: Date?
+    private var assetDateCache: [String: Date] = [:]
+
     func load() async {
         guard markers.isEmpty else { return }
         await fetch()
@@ -27,72 +33,93 @@ final class MapViewModel: ObservableObject {
         }
     }
 
-    func nearby(to region: MKCoordinateRegion, limit: Int = 30) -> [MapMarker] {
-        let latMin = region.center.latitude - region.span.latitudeDelta / 2
-        let latMax = region.center.latitude + region.span.latitudeDelta / 2
-        let lonMin = region.center.longitude - region.span.longitudeDelta / 2
-        let lonMax = region.center.longitude + region.span.longitudeDelta / 2
-        return markers
-            .filter { $0.lat >= latMin && $0.lat <= latMax && $0.lon >= lonMin && $0.lon <= lonMax }
-            .prefix(limit)
-            .map { $0 }
+    var hasDateFilter: Bool { dateFrom != nil || dateTo != nil }
+
+    /// Markers passing the active date filter. When no filter is set this is
+    /// the full set. Date resolution is best-effort and cached per asset.
+    func filteredMarkers() async -> [MapMarker] {
+        guard hasDateFilter else { return markers }
+        var result: [MapMarker] = []
+        for marker in markers {
+            let date = await resolveDate(for: marker.id)
+            guard let date else { continue }
+            if let from = dateFrom, date < from { continue }
+            if let to = dateTo, date > to { continue }
+            result.append(marker)
+        }
+        return result
+    }
+
+    private func resolveDate(for assetId: String) async -> Date? {
+        if let cached = assetDateCache[assetId] { return cached }
+        guard let asset = try? await ImmichAPI.shared.fetchAsset(id: assetId) else { return nil }
+        assetDateCache[assetId] = asset.localDateTime
+        return asset.localDateTime
+    }
+
+    func clearDateFilter() {
+        dateFrom = nil
+        dateTo = nil
     }
 }
 
 struct MapView: View {
     @StateObject private var viewModel = MapViewModel()
-    @State private var cameraPosition: MapCameraPosition = .automatic
-    @State private var visibleRegion = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 20, longitude: 0),
-        span: MKCoordinateSpan(latitudeDelta: 120, longitudeDelta: 120)
-    )
     @State private var selectedAsset: PhotoSelection?
+    @State private var displayedMarkers: [MapMarker] = []
+    @State private var showTimeFilter = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            mapLayer
-            nearbyTray
+            ClusterMap(markers: displayedMarkers) { id in
+                Task { await openAsset(id) }
+            }
+            .ignoresSafeArea()
         }
         .overlay(alignment: .top) {
             loadingOverlay
+        }
+        .overlay(alignment: .topTrailing) {
+            timeFilterButton
         }
         .overlay {
             statusOverlay
         }
         .task { await viewModel.load() }
+        .task(id: viewModel.markers.count) { await refreshDisplayed() }
+        .onChange(of: viewModel.dateFrom) { _, _ in Task { await refreshDisplayed() } }
+        .onChange(of: viewModel.dateTo) { _, _ in Task { await refreshDisplayed() } }
+        .sheet(isPresented: $showTimeFilter) {
+            TimeFilterSheet(
+                from: $viewModel.dateFrom,
+                to: $viewModel.dateTo,
+                onClear: { viewModel.clearDateFilter() }
+            )
+            .presentationDetents([.height(320)])
+            .presentationBackground(.black)
+        }
         .fullScreenCover(item: $selectedAsset) { sel in
             PhotoDetailView(assets: sel.assets, selectedIndex: sel.index)
         }
     }
 
-    private var mapLayer: some View {
-        Map(position: $cameraPosition) {
-            ForEach(viewModel.markers) { marker in
-                Annotation(
-                    marker.city ?? "",
-                    coordinate: CLLocationCoordinate2D(latitude: marker.lat, longitude: marker.lon)
-                ) {
-                    markerButton(for: marker)
-                }
-            }
-        }
-        .mapStyle(.hybrid(elevation: .realistic))
-        .ignoresSafeArea()
-        .onMapCameraChange { context in
-            visibleRegion = context.region
-        }
+    private func refreshDisplayed() async {
+        displayedMarkers = await viewModel.filteredMarkers()
     }
 
-    private func markerButton(for marker: MapMarker) -> some View {
+    private var timeFilterButton: some View {
         Button {
-            Task { await openAsset(marker.id) }
+            showTimeFilter = true
         } label: {
-            Image(systemName: "photo.circle.fill")
-                .font(.system(size: 26))
+            Image(systemName: viewModel.hasDateFilter ? "calendar.badge.checkmark" : "calendar")
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.phosphorPrimary)
-                .background(Circle().fill(.black.opacity(0.4)))
+                .padding(Spacing.s)
+                .background(.ultraThinMaterial, in: Circle())
         }
-        .accessibilityLabel(marker.city.map { "Photo in \($0)" } ?? "Photo location")
+        .padding(Spacing.m)
+        .accessibilityLabel("Filter by date")
+        .accessibilityHint("Show only photos taken in a date range.")
     }
 
     @ViewBuilder
@@ -120,6 +147,12 @@ struct MapView: View {
                 title: "No photos with location data",
                 showRetry: false
             )
+        } else if !viewModel.isLoading && displayedMarkers.isEmpty && viewModel.hasDateFilter {
+            statusCard(
+                symbol: "calendar.badge.exclamationmark",
+                title: "No photos in the selected date range",
+                showRetry: false
+            )
         }
     }
 
@@ -144,30 +177,6 @@ struct MapView: View {
         .accessibilityElement(children: .combine)
     }
 
-    @ViewBuilder
-    private var nearbyTray: some View {
-        let nearby = viewModel.nearby(to: visibleRegion)
-        if !nearby.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Spacing.s) {
-                    ForEach(nearby) { marker in
-                        Button {
-                            Task { await openAsset(marker.id) }
-                        } label: {
-                            MapThumbnail(assetId: marker.id)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(marker.city.map { "Photo in \($0)" } ?? "Photo")
-                    }
-                }
-                .padding(.horizontal, Spacing.m)
-                .padding(.vertical, Spacing.m)
-            }
-            .frame(height: 120)
-            .background(.ultraThinMaterial)
-        }
-    }
-
     private func openAsset(_ id: String) async {
         do {
             let asset = try await ImmichAPI.shared.fetchAsset(id: id)
@@ -178,22 +187,228 @@ struct MapView: View {
     }
 }
 
-private struct MapThumbnail: View {
-    let assetId: String
-    @State private var image: UIImage?
+// MARK: - Time filter sheet
+
+private struct TimeFilterSheet: View {
+    @Binding var from: Date?
+    @Binding var to: Date?
+    let onClear: () -> Void
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack {
-            if let image {
-                Image(uiImage: image).resizable().scaledToFill()
-            } else {
-                ShimmerView()
+        NavigationStack {
+            Form {
+                Section {
+                    DatePicker(
+                        "From",
+                        selection: Binding(
+                            get: { from ?? Date(timeIntervalSince1970: 0) },
+                            set: { from = $0 }
+                        ),
+                        displayedComponents: .date
+                    )
+                    DatePicker(
+                        "To",
+                        selection: Binding(
+                            get: { to ?? Date() },
+                            set: { to = $0 }
+                        ),
+                        displayedComponents: .date
+                    )
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .navigationTitle("Filter by date")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Clear") {
+                        onClear()
+                        dismiss()
+                    }
+                    .foregroundStyle(.phosphorSecondary)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .foregroundStyle(.phosphorAccent)
+                }
             }
         }
-        .frame(width: 88, height: 88)
-        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.small, style: .continuous))
-        .task(id: assetId) {
-            image = await ImageLoader.shared.thumbnail(for: assetId, size: .thumbnail)
+        .preferredColorScheme(.dark)
+    }
+}
+
+// MARK: - Clustering MKMapView wrapper
+
+private struct ClusterMap: UIViewRepresentable {
+    let markers: [MapMarker]
+    let onSelect: (String) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onSelect: onSelect)
+    }
+
+    func makeUIView(context: Context) -> MKMapView {
+        let map = MKMapView()
+        map.delegate = context.coordinator
+        map.mapType = .hybrid
+        map.pointOfInterestFilter = .excludingAll
+        map.register(
+            MarkerAnnotationView.self,
+            forAnnotationViewWithReuseIdentifier: MarkerAnnotationView.reuseID
+        )
+        map.register(
+            ClusterAnnotationView.self,
+            forAnnotationViewWithReuseIdentifier: ClusterAnnotationView.reuseID
+        )
+        return map
+    }
+
+    func updateUIView(_ map: MKMapView, context: Context) {
+        let existing = map.annotations.compactMap { $0 as? PhotoAnnotation }
+        let existingIDs = Set(existing.map(\.assetId))
+        let newIDs = Set(markers.map(\.id))
+
+        guard existingIDs != newIDs else { return }
+
+        map.removeAnnotations(existing)
+        let annotations = markers.map { marker in
+            PhotoAnnotation(
+                assetId: marker.id,
+                title: marker.city,
+                coordinate: CLLocationCoordinate2D(latitude: marker.lat, longitude: marker.lon)
+            )
         }
+        map.addAnnotations(annotations)
+        if !annotations.isEmpty, existing.isEmpty {
+            map.showAnnotations(annotations, animated: false)
+        }
+    }
+
+    final class Coordinator: NSObject, MKMapViewDelegate {
+        let onSelect: (String) -> Void
+
+        init(onSelect: @escaping (String) -> Void) {
+            self.onSelect = onSelect
+        }
+
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let cluster = annotation as? MKClusterAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(
+                    withIdentifier: ClusterAnnotationView.reuseID,
+                    for: cluster
+                ) as? ClusterAnnotationView
+                view?.annotation = cluster
+                return view
+            }
+            guard let photo = annotation as? PhotoAnnotation else { return nil }
+            let view = mapView.dequeueReusableAnnotationView(
+                withIdentifier: MarkerAnnotationView.reuseID,
+                for: photo
+            ) as? MarkerAnnotationView
+            view?.annotation = photo
+            return view
+        }
+
+        func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+            if let cluster = view.annotation as? MKClusterAnnotation {
+                // Zoom to fit the cluster's members.
+                let rect = cluster.memberAnnotations.reduce(MKMapRect.null) { partial, ann in
+                    let point = MKMapPoint(ann.coordinate)
+                    let pointRect = MKMapRect(x: point.x, y: point.y, width: 0, height: 0)
+                    return partial.union(pointRect)
+                }
+                mapView.setVisibleMapRect(
+                    rect,
+                    edgePadding: UIEdgeInsets(top: 80, left: 80, bottom: 80, right: 80),
+                    animated: true
+                )
+                mapView.deselectAnnotation(cluster, animated: false)
+            } else if let photo = view.annotation as? PhotoAnnotation {
+                onSelect(photo.assetId)
+                mapView.deselectAnnotation(photo, animated: false)
+            }
+        }
+    }
+}
+
+private final class PhotoAnnotation: NSObject, MKAnnotation {
+    let assetId: String
+    let title: String?
+    let coordinate: CLLocationCoordinate2D
+
+    init(assetId: String, title: String?, coordinate: CLLocationCoordinate2D) {
+        self.assetId = assetId
+        self.title = title
+        self.coordinate = coordinate
+    }
+}
+
+private final class MarkerAnnotationView: MKAnnotationView {
+    static let reuseID = "PhotoMarker"
+
+    override var annotation: MKAnnotation? {
+        didSet { configure() }
+    }
+
+    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        configure()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func configure() {
+        clusteringIdentifier = "photo"
+        canShowCallout = false
+        frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+        let symbol = UIImage(
+            systemName: "photo.circle.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 28)
+        )
+        let imageView = UIImageView(image: symbol)
+        imageView.frame = bounds
+        imageView.tintColor = .white
+        imageView.backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        imageView.layer.cornerRadius = 15
+        imageView.clipsToBounds = true
+        subviews.forEach { $0.removeFromSuperview() }
+        addSubview(imageView)
+    }
+}
+
+private final class ClusterAnnotationView: MKAnnotationView {
+    static let reuseID = "PhotoCluster"
+
+    override var annotation: MKAnnotation? {
+        didSet { configure() }
+    }
+
+    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        configure()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func configure() {
+        guard let cluster = annotation as? MKClusterAnnotation else { return }
+        let count = cluster.memberAnnotations.count
+        frame = CGRect(x: 0, y: 0, width: 40, height: 40)
+        subviews.forEach { $0.removeFromSuperview() }
+
+        let circle = UIView(frame: bounds)
+        circle.backgroundColor = UIColor(red: 0, green: 0.48, blue: 1, alpha: 0.9)
+        circle.layer.cornerRadius = 20
+        circle.clipsToBounds = true
+
+        let label = UILabel(frame: bounds)
+        label.text = count > 99 ? "99+" : "\(count)"
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 15, weight: .bold)
+        label.textAlignment = .center
+        circle.addSubview(label)
+        addSubview(circle)
     }
 }

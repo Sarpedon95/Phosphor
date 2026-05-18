@@ -83,15 +83,6 @@ struct EditingView: View {
                                     }
                                 }
                         )
-                        // Two-finger tap → before/after.
-                        .gesture(
-                            SpatialTapGesture(count: 2)
-                                .onEnded { _ in
-                                    withAnimation(.easeInOut(duration: 0.15)) {
-                                        showingOriginal.toggle()
-                                    }
-                                }
-                        )
                 } else {
                     ProgressView().tint(.phosphorAccent)
                 }
@@ -149,6 +140,23 @@ struct EditingView: View {
             .foregroundStyle(.phosphorAccent)
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
+            Button {} label: {
+                Image(systemName: "rectangle.lefthalf.inset.filled")
+            }
+            .accessibilityLabel("Compare with original")
+            .accessibilityHint("Press and hold to show the original. Release to return to the edited version.")
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0)
+                    .onChanged { _ in
+                        if !showingOriginal {
+                            withAnimation(.easeInOut(duration: 0.12)) { showingOriginal = true }
+                        }
+                    }
+                    .onEnded { _ in
+                        withAnimation(.easeInOut(duration: 0.12)) { showingOriginal = false }
+                    }
+            )
+
             Button {
                 Task { await viewModel.autoEnhance() }
             } label: {

@@ -52,9 +52,22 @@ actor ImageLoader {
     // MARK: - Public API
 
     func thumbnail(for assetId: String, size: ThumbnailSize) async -> UIImage? {
+        let key = "thumb:\(assetId):\(size.rawValue)"
+        if let cached = cache.object(forKey: key as NSString) {
+            return cached
+        }
+        // Promote disk hits into the in-memory cache.
+        if let disk = await DiskImageCache.shared.image(forAssetId: assetId, size: size) {
+            cache.setObject(disk, forKey: key as NSString, cost: Self.cost(of: disk))
+            return disk
+        }
         guard let url = ImmichAPI.shared.fetchThumbnailURL(id: assetId, size: size)
         else { return nil }
-        return await image(forKey: "thumb:\(assetId):\(size.rawValue)", url: url)
+        let image = await image(forKey: key, url: url)
+        if let image {
+            await DiskImageCache.shared.store(image, forAssetId: assetId, size: size)
+        }
+        return image
     }
 
     func fullImage(for assetId: String) async -> UIImage? {

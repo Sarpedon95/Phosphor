@@ -7,6 +7,8 @@ struct BackupView: View {
     @State private var selectedAlbumIDs: Set<String> = []
     @State private var showFreeUpAlert = false
     @State private var localAssetCount = 0
+    @State private var showFreeUpScreen = false
+    @State private var excludedAlbumIDs: Set<String> = []
     @AppStorage(AppSettings.Keys.wifiOnlyBackup) private var wifiOnly: Bool = AppSettings.Defaults.wifiOnlyBackup
     @AppStorage(AppSettings.Keys.showStorageIndicator) private var showStorageIndicator: Bool = AppSettings.Defaults.showStorageIndicator
     @AppStorage(AppSettings.Keys.uploadThrottleKBps) private var throttleKBps: Int = AppSettings.Defaults.uploadThrottleKBps
@@ -19,6 +21,7 @@ struct BackupView: View {
                 statusSection
                 controlsSection
                 albumsSection
+                excludedAlbumsSection
                 settingsSection
                 freeUpSection
             }
@@ -30,6 +33,7 @@ struct BackupView: View {
         .task {
             await loadAlbums()
             selectedAlbumIDs = manager.selectedAlbumIDs
+            excludedAlbumIDs = manager.excludedAlbumIDs
         }
         .alert("Free up space?", isPresented: $showFreeUpAlert) {
             Button("Cancel", role: .cancel) {}
@@ -100,6 +104,12 @@ struct BackupView: View {
                         .font(Typography.caption.monospacedDigit())
                         .foregroundStyle(.phosphorSecondary)
                 }
+                if let eta = manager.etaString {
+                    Text(eta)
+                        .font(Typography.caption)
+                        .foregroundStyle(.phosphorSecondary)
+                        .accessibilityLabel("Estimated time remaining: \(eta)")
+                }
             }
             .listRowBackground(Color.phosphorSurface)
         }
@@ -166,6 +176,35 @@ struct BackupView: View {
     }
 
     @ViewBuilder
+    private var excludedAlbumsSection: some View {
+        if !albums.isEmpty {
+            Section {
+                ForEach(albums, id: \.localIdentifier) { coll in
+                    Toggle(coll.localizedTitle ?? "Untitled", isOn: Binding(
+                        get: { !excludedAlbumIDs.contains(coll.localIdentifier) },
+                        set: { included in
+                            if included {
+                                excludedAlbumIDs.remove(coll.localIdentifier)
+                            } else {
+                                excludedAlbumIDs.insert(coll.localIdentifier)
+                            }
+                            manager.excludedAlbumIDs = excludedAlbumIDs
+                        }
+                    ))
+                    .tint(.phosphorPrimary)
+                    .listRowBackground(Color.phosphorSurface)
+                }
+            } header: {
+                Text("Excluded Albums")
+            } footer: {
+                Text("Turn an album off to skip its photos during backup, even if it's in your camera roll.")
+                    .font(Typography.caption)
+                    .foregroundStyle(.phosphorSecondary)
+            }
+        }
+    }
+
+    @ViewBuilder
     private var settingsSection: some View {
         Section {
             Toggle(isOn: $wifiOnly) {
@@ -190,17 +229,21 @@ struct BackupView: View {
     @ViewBuilder
     private var freeUpSection: some View {
         Section {
-            Button(role: .destructive) {
-                showFreeUpAlert = true
+            Button {
+                showFreeUpScreen = true
             } label: {
                 Label("Free Up Space", systemImage: "trash.slash")
+                    .foregroundStyle(.phosphorAccent)
             }
             .listRowBackground(Color.phosphorSurface)
-            .accessibilityHint("Deletes local copies of photos already uploaded to the server.")
+            .accessibilityHint("Review local photos already on the server before deleting.")
         } footer: {
             Text("Removes local camera roll copies of photos that exist on your server.")
                 .font(Typography.caption)
                 .foregroundStyle(.phosphorSecondary)
+        }
+        .sheet(isPresented: $showFreeUpScreen) {
+            FreeUpSpaceView()
         }
     }
 

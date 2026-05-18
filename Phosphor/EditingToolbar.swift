@@ -53,6 +53,8 @@ struct EditingToolbar: View {
                                 .frame(height: 2)
                         }
                     }
+                    .accessibilityLabel("\(c.rawValue) tools")
+                    .accessibilityAddTraits(category == c ? [.isSelected] : [])
                 }
             }
             .padding(.horizontal, Spacing.md)
@@ -268,6 +270,8 @@ struct EditingToolbar: View {
             }
             Slider(value: binding, in: range)
                 .tint(.phosphorAccent)
+                .accessibilityLabel(label)
+                .accessibilityValue(String(format: "%.2f", binding.wrappedValue))
         }
     }
 
@@ -294,6 +298,8 @@ struct EditingToolbar: View {
                     .foregroundStyle(.phosphorAccent)
             }
             Slider(value: binding, in: range).tint(.phosphorAccent)
+                .accessibilityLabel("\(label) channel \(channel + 1)")
+                .accessibilityValue(String(format: "%.2f", binding.wrappedValue))
         }
     }
 }

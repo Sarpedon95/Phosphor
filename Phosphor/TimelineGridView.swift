@@ -17,6 +17,12 @@ struct TimelineGridView<Header: View>: View {
     @State private var sharedImage: TimelineSharedImage?
     @State private var isLoadingShare = false
     @State private var shareFailed = false
+    @State private var cellFrames: [String: CGRect] = [:]
+    @State private var dragSelectRect: CGRect?
+    @State private var dragSelectAnchor: CGPoint?
+
+    private static let gridSpace = "timelineGridSpace"
+    @Namespace private var photoZoom
     @AppStorage(AppSettings.Keys.readOnlyMode) private var isReadOnly: Bool = AppSettings.Defaults.readOnlyMode
     @AppStorage(AppSettings.Keys.gridDensity) private var gridDensity: Int = AppSettings.Defaults.gridDensity
     @AppStorage(AppSettings.Keys.timelineViewMode) private var viewModeRaw: String = AppSettings.Defaults.timelineViewMode.rawValue
@@ -54,6 +60,32 @@ struct TimelineGridView<Header: View>: View {
 
     private var lastAssetID: String? {
         groups.last?.assets.last?.id
+    }
+
+    /// Rubber-band multi-select. Active only while in selection mode so it
+    /// never competes with normal scrolling. `.simultaneousGesture` keeps the
+    /// pinch + scroll gestures alive.
+    private var rubberBandGesture: some Gesture {
+        DragGesture(minimumDistance: 12, coordinateSpace: .named(Self.gridSpace))
+            .onChanged { value in
+                guard isSelecting else { return }
+                if dragSelectAnchor == nil { dragSelectAnchor = value.startLocation }
+                guard let anchor = dragSelectAnchor else { return }
+                let rect = CGRect(
+                    x: min(anchor.x, value.location.x),
+                    y: min(anchor.y, value.location.y),
+                    width: abs(value.location.x - anchor.x),
+                    height: abs(value.location.y - anchor.y)
+                )
+                dragSelectRect = rect
+                for (id, frame) in cellFrames where frame.intersects(rect) {
+                    selectedIDs.insert(id)
+                }
+            }
+            .onEnded { _ in
+                dragSelectRect = nil
+                dragSelectAnchor = nil
+            }
     }
 
     private var pinchGesture: some Gesture {
@@ -120,15 +152,7 @@ struct TimelineGridView<Header: View>: View {
             }
         }
         .fullScreenCover(item: $selection) { sel in
-            PhotoDetailView(
-                assets: sel.assets,
-                selectedIndex: sel.index
-            ) { change in
-                switch change {
-                case .favorited(let asset): viewModel.applyExternalUpdate(asset)
-                case .trashed(let id): viewModel.removeExternally(id: id)
-                }
-            }
+            photoDetailCover(sel)
         }
         .alert("Read-only mode is on", isPresented: $showReadOnlyAlert) {
             Button("OK", role: .cancel) {}
@@ -183,6 +207,14 @@ struct TimelineGridView<Header: View>: View {
                     Section {
                         ForEach(group.assets) { asset in
                             cellView(asset)
+                                .background(
+                                    GeometryReader { geo in
+                                        Color.clear.preference(
+                                            key: CellFramePreferenceKey.self,
+                                            value: [asset.id: geo.frame(in: .named(Self.gridSpace))]
+                                        )
+                                    }
+                                )
                         }
                     } header: {
                         sectionHeader(group)
@@ -190,8 +222,21 @@ struct TimelineGridView<Header: View>: View {
                 }
             }
             .padding(.bottom, Spacing.xl)
+            .overlay {
+                if let rect = dragSelectRect {
+                    Rectangle()
+                        .fill(Color.phosphorAccent.opacity(0.15))
+                        .overlay(Rectangle().strokeBorder(Color.phosphorAccent, lineWidth: 1))
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+                        .allowsHitTesting(false)
+                }
+            }
         }
+        .coordinateSpace(name: Self.gridSpace)
+        .onPreferenceChange(CellFramePreferenceKey.self) { cellFrames = $0 }
         .gesture(pinchGesture)
+        .simultaneousGesture(rubberBandGesture)
         .scrollIndicators(.hidden)
         .refreshable {
             HapticManager.impact(.light)
@@ -276,9 +321,31 @@ struct TimelineGridView<Header: View>: View {
         }
     }
 
+    /// PhotoDetailView wrapped in the iOS 18 zoom transition when available.
+    /// matchedGeometryEffect cannot cross a fullScreenCover boundary, so the
+    /// zoom transition API (source = tapped cell) is the supported path; iOS
+    /// 17 falls back to the default cover presentation.
+    @ViewBuilder
+    private func photoDetailCover(_ sel: PhotoSelection) -> some View {
+        let detail = PhotoDetailView(
+            assets: sel.assets,
+            selectedIndex: sel.index
+        ) { change in
+            switch change {
+            case .favorited(let asset): viewModel.applyExternalUpdate(asset)
+            case .trashed(let id): viewModel.removeExternally(id: id)
+            }
+        }
+        if #available(iOS 18, *), sel.assets.indices.contains(sel.index) {
+            detail.navigationTransition(.zoom(sourceID: sel.assets[sel.index].id, in: photoZoom))
+        } else {
+            detail
+        }
+    }
+
     @ViewBuilder
     private func cellView(_ asset: ImmichAsset) -> some View {
-        AssetGridCell(
+        let cell = AssetGridCell(
             asset: asset,
             onContextAction: isSelecting ? nil : { handleContext($0, asset: asset) }
         )
@@ -295,11 +362,23 @@ struct TimelineGridView<Header: View>: View {
             .onTapGesture {
                 if isSelecting { toggleSelect(asset.id) } else { open(asset) }
             }
+            .onLongPressGesture(minimumDuration: 0.35) {
+                if !isSelecting {
+                    HapticManager.impact(.medium)
+                    isSelecting = true
+                    selectedIDs.insert(asset.id)
+                }
+            }
             .onAppear {
                 if asset.id == lastAssetID {
                     Task { await viewModel.loadNextPage() }
                 }
             }
+        if #available(iOS 18, *) {
+            cell.matchedTransitionSource(id: asset.id, in: photoZoom)
+        } else {
+            cell
+        }
     }
 
     private func sectionHeader(_ group: TimelineGroup) -> some View {
@@ -463,6 +542,15 @@ struct TimelineGridView<Header: View>: View {
 struct CollageAssetSelection: Identifiable {
     let id = UUID()
     let assets: [ImmichAsset]
+}
+
+/// Collects each grid cell's frame (in the grid coordinate space) so the
+/// rubber-band drag can hit-test selections.
+private struct CellFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
 }
 
 /// Identifiable wrapper for driving the AlbumPickerView sheet.

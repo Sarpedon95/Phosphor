@@ -8,6 +8,8 @@ struct MemoryDetailView: View {
     @State private var index = 0
     @State private var paused = false
     @State private var collageAssets: CollageAssetSelection?
+    @State private var isSaved = false
+    @State private var showDeleteConfirm = false
 
     private let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
 
@@ -27,8 +29,15 @@ struct MemoryDetailView: View {
             VStack {
                 topBar
                 Spacer()
+                reactionBar
                 progressBar
             }
+        }
+        .alert("Remove memory?", isPresented: $showDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) { Task { await removeMemory() } }
+        } message: {
+            Text("This will hide the memory from your library. The photos are not deleted.")
         }
         .contentShape(Rectangle())
         .onTapGesture { paused.toggle() }
@@ -82,6 +91,60 @@ struct MemoryDetailView: View {
         }
         .padding(.horizontal, Spacing.l + Spacing.xs)
         .padding(.top, Spacing.l)
+    }
+
+    private var reactionBar: some View {
+        HStack(spacing: Spacing.lg) {
+            Button { Task { await toggleSaved() } } label: {
+                VStack(spacing: 2) {
+                    Image(systemName: isSaved ? "heart.fill" : "heart")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(isSaved ? .phosphorDanger : .phosphorPrimary)
+                    Text(isSaved ? "Saved" : "Save")
+                        .font(Typography.caption)
+                        .foregroundStyle(.phosphorPrimary)
+                }
+                .frame(minWidth: TapTarget.minimum, minHeight: TapTarget.minimum)
+            }
+            .accessibilityLabel(isSaved ? "Unsave memory" : "Save memory")
+
+            Button { showDeleteConfirm = true } label: {
+                VStack(spacing: 2) {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.phosphorPrimary)
+                    Text("Archive")
+                        .font(Typography.caption)
+                        .foregroundStyle(.phosphorPrimary)
+                }
+                .frame(minWidth: TapTarget.minimum, minHeight: TapTarget.minimum)
+            }
+            .accessibilityLabel("Archive memory")
+        }
+        .padding(.horizontal, Spacing.l)
+        .padding(.bottom, Spacing.s)
+    }
+
+    private func toggleSaved() async {
+        let previous = isSaved
+        isSaved.toggle()
+        do {
+            try await ImmichAPI.shared.toggleMemorySaved(id: memory.id, saved: isSaved)
+            HapticManager.notification(.success)
+        } catch {
+            isSaved = previous
+            HapticManager.notification(.error)
+        }
+    }
+
+    private func removeMemory() async {
+        do {
+            try await ImmichAPI.shared.deleteMemory(id: memory.id)
+            HapticManager.notification(.success)
+            dismiss()
+        } catch {
+            HapticManager.notification(.error)
+        }
     }
 
     private var progressBar: some View {

@@ -18,6 +18,7 @@ struct AlbumDetailView: View {
     @State private var isEditingDescription = false
     @State private var descriptionDraft = ""
     @State private var sortMode: AlbumSortMode = .dateNewest
+    @State private var showSharing = false
     @AppStorage(AppSettings.Keys.readOnlyMode) private var isReadOnly: Bool = AppSettings.Defaults.readOnlyMode
 
     enum AlbumSortMode: String, CaseIterable, Identifiable {
@@ -97,6 +98,13 @@ struct AlbumDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack {
+                    Button {
+                        showSharing = true
+                    } label: {
+                        Image(systemName: "person.badge.plus")
+                    }
+                    .foregroundStyle(.phosphorAccent)
+                    .accessibilityLabel("Manage sharing")
                     if assets.count >= 2 {
                         Button {
                             collageAssets = CollageAssetSelection(assets: sortedAssets)
@@ -128,6 +136,9 @@ struct AlbumDetailView: View {
         }
         .fullScreenCover(item: $collageAssets) { selection in
             CollageView(assets: selection.assets)
+        }
+        .sheet(isPresented: $showSharing) {
+            SharedAlbumManagementView(album: albumState) { _ in }
         }
         .task { if assets.isEmpty { await load() } }
         .fullScreenCover(item: $selection) { sel in

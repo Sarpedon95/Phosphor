@@ -108,6 +108,9 @@ enum AppSettings {
 
         // Album local sort (persisted per-album-id is overkill; one global value)
         static let albumsSortOrder = "albums_sort_order"
+
+        // Excluded local albums (PHAssetCollection.localIdentifier list)
+        static let excludedBackupAlbums = "excluded_backup_albums"
     }
 
     enum Defaults {

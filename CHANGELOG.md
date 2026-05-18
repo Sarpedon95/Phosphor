@@ -3,6 +3,68 @@
 All notable changes to Phosphor are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Stages 1–3: security hardening, authentication overhaul, and a broad UX,
+editing, library, backup, map and accessibility pass.
+
+### Security
+- Credentials moved from UserDefaults to the iOS Keychain
+  (`kSecClassGenericPassword`, `accessibleAfterFirstUnlock`) with a one-time
+  launch migration from any legacy UserDefaults values
+- Video playback no longer leaks the API key as a URL query parameter — auth
+  is sent via an `AVURLAsset` request header instead
+- Share action now shares the actual decoded image, not an authenticated URL
+  that was useless (and credential-bearing) to recipients
+- Disk thumbnail cache stored under Caches with a 500 MB LRU cap
+
+### Authentication
+- Email + password sign-in (`/auth/login`) with bearer-token storage,
+  `validateToken`, and a password-based `probe`
+- Bearer token preferred over `x-api-key`; API-key path retained for
+  backward compatibility
+- Redesigned three-step onboarding: mDNS discovery (NWBrowser) → email/
+  password login → API-key fallback
+- QR-code scanner that pre-fills the server address
+
+### UX
+- Double-tap to zoom (1× ⇄ 3×, centered on tap) in the photo viewer
+- Context menus on grid cells (favorite, archive, add-to-album, share, trash)
+  with a new album picker sheet
+- Rubber-band drag multi-select; long-press a cell to enter selection mode
+- iOS 18 zoom transition from grid thumbnail into the full-screen viewer
+  (graceful fallback on iOS 17 — matchedGeometryEffect can't cross a modal)
+- Shared-album management: search the user directory, add/remove people
+- Per-year On-This-Day query (concurrent TaskGroup, capped at 100, sorted)
+- Cycling grid / list / justified layout button in the Library toolbar
+- Error-recovery states with Retry across Library, Search, People, Memories
+
+### Editing
+- Crop UI made functional: full-screen editor bound to crop rect + angle
+- "Save as new photo?" confirmation before an edit is uploaded
+- Press-and-hold Compare button (replaces the hidden two-finger tap)
+- Preset intensity slider with `lastAppliedPreset` for live re-application
+
+### Library
+- Person detail: birthdate display and a "Merge with…" flow (handles the
+  404 from servers that don't support face merging)
+- Memory reactions: save (heart) and archive with confirmation
+
+### Backup
+- Excluded-albums section — skip chosen local albums during backup
+- Estimated time remaining, surfaced in the Live Activity ("~3 min remaining")
+- Dedicated Free-Up-Space screen with thumbnails, sizes and per-row delete
+
+### Map
+- Time-range filter sheet (from/to date pickers, Clear)
+- Switched to an `MKMapView` wrapper with native marker clustering;
+  tapping a cluster zooms to fit its members
+
+### Accessibility
+- Dynamic Type: typography rebuilt on system text styles
+- Labels/values on every editing slider and category tab
+- RGB histogram, grid cells, year and memory cards labelled
+
 ## [1.0.0] — 2026-05-15
 
 First public release. A premium, self-hosted photo client for a personal

@@ -23,10 +23,17 @@ struct PhosphorLiveActivityWidget: Widget {
                         .foregroundStyle(.white)
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    Text(context.state.currentFileName)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.8))
-                        .lineLimit(1)
+                    VStack(spacing: 2) {
+                        Text(context.state.currentFileName)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.8))
+                            .lineLimit(1)
+                        if let eta = context.state.etaString {
+                            Text(eta)
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.6))
+                        }
+                    }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     ProgressView(value: fraction(context.state))
@@ -79,6 +86,12 @@ private struct LockScreenLiveActivityView: View {
 
             ProgressView(value: state.total == 0 ? 0 : Double(state.uploaded) / Double(state.total))
                 .tint(.white)
+
+            if let eta = state.etaString {
+                Text(eta)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.6))
+            }
         }
         .padding()
     }

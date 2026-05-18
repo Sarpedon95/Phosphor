@@ -99,6 +99,18 @@ struct SharedUser: Codable, Hashable {
     let email: String?
 }
 
+/// A user record from `GET /users` (and `GET /users?q=…`).
+struct ImmichUser: Identifiable, Codable, Hashable {
+    let id: String
+    let email: String?
+    let name: String?
+
+    var displayName: String {
+        if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty { return name }
+        return email ?? id
+    }
+}
+
 // MARK: - People
 
 /// A recognized person from `GET /people`.

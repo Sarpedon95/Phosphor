@@ -1253,6 +1253,9 @@ private struct InlineHistogramView: View {
         }
         .frame(height: 80)
         .background(Color.black.opacity(0.6))
+        .accessibilityElement()
+        .accessibilityLabel("RGB histogram")
+        .accessibilityHint("Shows the tonal distribution of the image")
     }
 
     private func draw(_ bins: [UInt], color: Color, size: CGSize, ctx: inout GraphicsContext) {

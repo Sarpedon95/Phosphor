@@ -45,6 +45,19 @@ final class BackupManager: ObservableObject {
     @Published private(set) var progress = UploadProgress()
     @Published private(set) var lastBackupDate: Date?
     @Published var lastError: Error?
+    @Published private(set) var estimatedTimeRemaining: TimeInterval?
+    private var runStartDate: Date?
+
+    /// Excluded local album IDs (PHAssetCollection.localIdentifier). Assets
+    /// inside these collections are filtered out of every backup run.
+    var excludedAlbumIDs: Set<String> {
+        get {
+            Set(defaults.stringArray(forKey: AppSettings.Keys.excludedBackupAlbums) ?? [])
+        }
+        set {
+            defaults.set(Array(newValue), forKey: AppSettings.Keys.excludedBackupAlbums)
+        }
+    }
 
     private var currentTask: Task<Void, Never>?
     private let defaults: UserDefaults = .phosphor
@@ -143,6 +156,8 @@ final class BackupManager: ObservableObject {
     private func runBackup() async {
         progress = UploadProgress(isRunning: true)
         lastError = nil
+        runStartDate = Date()
+        estimatedTimeRemaining = nil
         liveActivityStart()
 
         // Authorization.
@@ -182,6 +197,7 @@ final class BackupManager: ObservableObject {
             let bytes = await uploadOne(asset)
             pending.removeAll { $0 == asset.localIdentifier }
             persistQueue(pending)
+            updateETR()
             liveActivityUpdate()
             await applyThrottle(bytesUploaded: bytes)
         }
@@ -247,13 +263,13 @@ final class BackupManager: ObservableObject {
 
     private func fetchPHAssets() -> [PHAsset] {
         let selected = selectedAlbumIDs
+        let excluded = excludedAlbumIDs
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
 
+        let initial: [PHAsset]
         if selected.isEmpty {
-            // No selection means "all photos and videos in camera roll".
-            let result = PHAsset.fetchAssets(with: options)
-            return collect(result)
+            initial = collect(PHAsset.fetchAssets(with: options))
         } else {
             let collections = PHAssetCollection.fetchAssetCollections(
                 withLocalIdentifiers: Array(selected), options: nil
@@ -263,8 +279,49 @@ final class BackupManager: ObservableObject {
                 let inColl = PHAsset.fetchAssets(in: coll, options: options)
                 combined.append(contentsOf: self.collect(inColl))
             }
-            return combined
+            initial = combined
         }
+
+        guard !excluded.isEmpty else { return initial }
+        // Build the set of localIdentifiers that live in any excluded album.
+        let excludedCollections = PHAssetCollection.fetchAssetCollections(
+            withLocalIdentifiers: Array(excluded), options: nil
+        )
+        var excludedAssetIDs = Set<String>()
+        excludedCollections.enumerateObjects { coll, _, _ in
+            let inColl = PHAsset.fetchAssets(in: coll, options: nil)
+            inColl.enumerateObjects { asset, _, _ in
+                excludedAssetIDs.insert(asset.localIdentifier)
+            }
+        }
+        return initial.filter { !excludedAssetIDs.contains($0.localIdentifier) }
+    }
+
+    private func updateETR() {
+        guard let start = runStartDate else { return }
+        let done = progress.completed + progress.failed
+        guard done > 0, progress.total > 0 else {
+            estimatedTimeRemaining = nil
+            return
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        let perItem = elapsed / Double(done)
+        let remaining = progress.total - done
+        estimatedTimeRemaining = perItem * Double(max(0, remaining))
+    }
+
+    /// Human-readable estimate of remaining time, suitable for the Live
+    /// Activity status string. Returns nil if not yet computable.
+    var etaString: String? {
+        guard let eta = estimatedTimeRemaining, eta.isFinite, eta > 0 else { return nil }
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.allowedUnits = [.hour, .minute, .second]
+        formatter.maximumUnitCount = 2
+        if let formatted = formatter.string(from: eta) {
+            return "~\(formatted) remaining"
+        }
+        return nil
     }
 
     private func collect(_ result: PHFetchResult<PHAsset>) -> [PHAsset] {
@@ -316,6 +373,15 @@ final class BackupManager: ObservableObject {
             progress.currentFileName = nil
             return 0
         }
+    }
+
+    /// Finds local PHAssets that are safe to delete (already present on the
+    /// server, matched by SHA1). Convenience entry point for FreeUpSpaceView.
+    func findLocalAssetsAlreadyOnServer() async -> [PHAsset] {
+        let all = PHAsset.fetchAssets(with: nil)
+        var candidates: [PHAsset] = []
+        all.enumerateObjects { asset, _, _ in candidates.append(asset) }
+        return await confirmedOnServer(candidates)
     }
 
     /// Returns the subset of `assets` the server confirms it already holds
@@ -410,7 +476,8 @@ final class BackupManager: ObservableObject {
             uploaded: progress.completed,
             total: progress.total,
             currentFileName: progress.currentFileName ?? "",
-            isFailed: false
+            isFailed: false,
+            etaString: etaString
         )
         Task { await activity.update(ActivityContent(state: state, staleDate: nil)) }
     }
