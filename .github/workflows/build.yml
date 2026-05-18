@@ -104,6 +104,12 @@ jobs:
           security unlock-keychain -p "$CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
 
+          # Import Apple WWDR G3 intermediate CA — required for trust chain of
+          # distribution certificates issued by that authority.
+          curl -sSL "https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer" \
+            -o "$RUNNER_TEMP/WWDRG3.cer"
+          security import "$RUNNER_TEMP/WWDRG3.cer" -k "$KEYCHAIN_PATH" 2>/dev/null || true
+
           echo "$CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
           security import "$RUNNER_TEMP/certificate.p12" \
             -k "$KEYCHAIN_PATH" \
@@ -114,11 +120,7 @@ jobs:
             -S apple-tool:,apple:,codesign: \
             -s -k "$CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "=== Keychains in search list ==="
-          security list-keychains -d user
-          echo "=== All identities in build keychain (including invalid) ==="
-          security find-identity -p codesigning "$KEYCHAIN_PATH"
-          echo "=== Valid identities only ==="
+          echo "=== Valid identities after WWDR import ==="
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
       # 8. Install the provisioning profiles (main app + 2 extensions).
