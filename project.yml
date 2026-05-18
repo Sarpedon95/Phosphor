@@ -36,6 +36,7 @@ settings:
       CODE_SIGN_STYLE: Manual
       CODE_SIGNING_REQUIRED: YES
       CODE_SIGNING_ALLOWED: YES
+      CODE_SIGN_IDENTITY: "Apple Distribution"
 
 targets:
   Phosphor:

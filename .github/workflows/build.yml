@@ -172,7 +172,6 @@ jobs:
             -archivePath "$ARCHIVE_PATH" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="${{ secrets.CODE_SIGN_IDENTITY }}" \
             DEVELOPMENT_TEAM="${{ secrets.TEAM_ID }}" \
             ASSETCATALOG_COMPILER_SKIP_OPTIMIZATION=YES \
             | tee build.log
