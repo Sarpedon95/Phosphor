@@ -198,19 +198,12 @@ jobs:
           set -o pipefail
           /usr/libexec/PlistBuddy \
             -c "Set :teamID ${TEAM_ID}" ExportOptions.plist
-          /usr/libexec/PlistBuddy \
-            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor ${MAIN_UUID}" ExportOptions.plist
-          /usr/libexec/PlistBuddy \
-            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor.widgets ${WIDGETS_UUID}" ExportOptions.plist
-          /usr/libexec/PlistBuddy \
-            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor.liveactivity ${LIVEACTIVITY_UUID}" ExportOptions.plist
-          echo "=== ExportOptions.plist after injection ==="
+          echo "=== ExportOptions.plist ==="
           cat ExportOptions.plist
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportOptionsPlist ExportOptions.plist \
             -exportPath "$EXPORT_PATH" \
-            -allowProvisioningUpdates \
             | tee -a build.log
 
       # 11. Inspect IPA contents (debug).
