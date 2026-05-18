@@ -1,4 +1,17 @@
 import Foundation
+import Network
+
+/// One-shot continuation guard for the TCP reachability probe.
+private final class OneShotLatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var consumed = false
+    func tryConsume() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if consumed { return false }
+        consumed = true
+        return true
+    }
+}
 
 // MARK: - Thumbnail sizing
 
@@ -930,6 +943,150 @@ final class ImmichAPI {
             }
         }
         return nil
+    }
+
+    // MARK: - Structured connection test (onboarding)
+
+    /// A single check the onboarding "Testing Connection" screen displays.
+    enum ConnectionStepStatus {
+        case pending
+        case running
+        case success(String)
+        case failure(String)
+    }
+
+    /// Phases of the onboarding probe — the user sees a row per phase and a
+    /// status icon for each. Same shape LyrPlay uses for its web/stream
+    /// pair, generalized for Immich's single-endpoint reality.
+    struct ConnectionTestStep: Identifiable {
+        let id: Phase
+        let label: String
+        var status: ConnectionStepStatus
+
+        enum Phase { case reach, api, version }
+    }
+
+    /// Builds the empty step list — the test screen seeds itself from this.
+    static func makeConnectionTestSteps() -> [ConnectionTestStep] {
+        [
+            .init(id: .reach,   label: "Server reachable",      status: .pending),
+            .init(id: .api,     label: "Immich API responding", status: .pending),
+            .init(id: .version, label: "Server version",        status: .pending)
+        ]
+    }
+
+    /// Runs the three-phase probe against a typed address. Callers should
+    /// pass `update` to receive incremental status updates as each phase
+    /// flips state — the test screen renders the most recent snapshot.
+    /// On success returns the resolved (base, prefix) the next step uses.
+    static func runConnectionTest(
+        address: String,
+        update: @MainActor @escaping ([ConnectionTestStep]) -> Void
+    ) async -> ResolvedConnection? {
+        var steps = makeConnectionTestSteps()
+        await MainActor.run { update(steps) }
+
+        // Phase 1 + 2 are folded together: resolveConnection() does a TCP
+        // open + HTTP /server/ping decode. We surface them as separate UI
+        // rows so the user can see whether the failure was at the network
+        // layer or at the API layer.
+        steps[0].status = .running
+        await MainActor.run { update(steps) }
+
+        guard let resolved = await resolveConnection(address: address) else {
+            // Try a raw TCP probe to distinguish "host unreachable" from
+            // "host answers but isn't Immich".
+            let tcpOK = await tcpReachable(address: address)
+            if tcpOK {
+                steps[0].status = .success("Reached")
+                steps[1].status = .failure("No Immich API at that address")
+            } else {
+                steps[0].status = .failure("Couldn't reach that address")
+                steps[1].status = .pending
+            }
+            steps[2].status = .pending
+            await MainActor.run { update(steps) }
+            return nil
+        }
+
+        steps[0].status = .success("Reached")
+        steps[1].status = .success(resolved.prefix.isEmpty ? "Legacy API (no /api)" : "/api")
+        steps[2].status = .running
+        await MainActor.run { update(steps) }
+
+        // Phase 3: server version is supplementary — failure doesn't fail
+        // the test, it just shows "unknown" in the row.
+        guard let root = URL(string: resolved.baseURL) else { return resolved }
+        var url = root
+        if !resolved.prefix.isEmpty {
+            url.appendPathComponent(resolved.prefix.hasPrefix("/")
+                ? String(resolved.prefix.dropFirst()) : resolved.prefix)
+        }
+        url.appendPathComponent("server/version")
+        var req = URLRequest(url: url)
+        req.timeoutInterval = probeTimeout
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        if let (data, response) = try? await ImmichAPI.shared.session.data(for: req),
+           let http = response as? HTTPURLResponse,
+           (200..<300).contains(http.statusCode),
+           let v = try? JSONDecoder().decode(ServerVersion.self, from: data) {
+            steps[2].status = .success("v\(v.major).\(v.minor).\(v.patch)")
+        } else {
+            steps[2].status = .success("unknown")
+        }
+        await MainActor.run { update(steps) }
+        return resolved
+    }
+
+    /// Raw TCP open against the host[:port] portion of a typed address.
+    /// Used by the test screen to tell "wrong address" from "wrong app".
+    private static func tcpReachable(address: String) async -> Bool {
+        // Pull out a host and a probable port. We don't try multiple ports
+        // here — this is just a "did anything at all answer" sanity check.
+        var s = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        var scheme = "http"
+        if s.hasPrefix("https://") { s.removeFirst(8); scheme = "https" }
+        else if s.hasPrefix("http://") { s.removeFirst(7) }
+        while s.hasSuffix("/") { s.removeLast() }
+        var host = s
+        var port: UInt16 = scheme == "https" ? 443 : 80
+        if let colon = s.lastIndex(of: ":"),
+           !s[s.index(after: colon)...].isEmpty,
+           s[s.index(after: colon)...].allSatisfy(\.isNumber),
+           let p = UInt16(s[s.index(after: colon)...]) {
+            host = String(s[..<colon])
+            port = p
+        }
+        guard let nwPort = NWEndpoint.Port(rawValue: port), !host.isEmpty else { return false }
+        return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            let conn = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
+            let once = OneShotLatch()
+            conn.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    if once.tryConsume() {
+                        conn.cancel()
+                        cont.resume(returning: true)
+                    }
+                case .failed, .cancelled:
+                    if once.tryConsume() {
+                        conn.cancel()
+                        cont.resume(returning: false)
+                    }
+                default: break
+                }
+            }
+            conn.start(queue: .global(qos: .userInitiated))
+            // Hard cap so we don't hang on filtered ports.
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(probeTimeout * 1_000_000_000))
+                if once.tryConsume() {
+                    conn.cancel()
+                    cont.resume(returning: false)
+                }
+            }
+        }
     }
 
     /// POSTs `{base}{prefix}/auth/login`. Throws `.unauthorized` on 401.
