@@ -126,17 +126,17 @@ jobs:
 
           install_profile() {
             local b64="$1" name="$2"
-            local tmp=$(mktemp /tmp/profile.XXXXXX)
+            local tmp uuid
+            tmp=$(mktemp /tmp/profile.XXXXXX)
             echo "$b64" | base64 --decode > "$tmp"
-            uuid=$(security cms -D -i "$tmp" 2>/dev/null | plutil -extract UUID raw - 2>/dev/null || \
-                   /usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin <<< "$(security cms -D -i "$tmp" 2>/dev/null)")
+            uuid=$(security cms -D -i "$tmp" 2>/dev/null | plutil -extract UUID raw -)
             if [ -z "$uuid" ]; then
               uuid=$(strings "$tmp" | grep -E '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' | head -1)
             fi
-            echo "Installing $name (UUID: $uuid)"
+            echo "Installing $name UUID=$uuid" >&2
             cp "$tmp" "$PROFILE_DIR/$uuid.mobileprovision"
             rm "$tmp"
-            echo "$uuid"
+            printf '%s' "$uuid"
           }
 
           MAIN_UUID=$(install_profile "$PROVISIONING_PROFILE_BASE64_MAIN" "Phosphor App Store")
