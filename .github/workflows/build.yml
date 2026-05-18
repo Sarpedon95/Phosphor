@@ -116,7 +116,9 @@ jobs:
 
           echo "=== Keychains in search list ==="
           security list-keychains -d user
-          echo "=== Valid codesigning identities in build keychain ==="
+          echo "=== All identities in build keychain (including invalid) ==="
+          security find-identity -p codesigning "$KEYCHAIN_PATH"
+          echo "=== Valid identities only ==="
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
       # 8. Install the provisioning profiles (main app + 2 extensions).
