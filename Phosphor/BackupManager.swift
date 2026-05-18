@@ -266,6 +266,11 @@ final class BackupManager: ObservableObject {
         let excluded = excludedAlbumIDs
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        // Include the iOS "Hidden" album so a user who explicitly chose it
+        // for backup (or who selected the catch-all "All Photos" path) can
+        // back up those assets. With Full Library access this works
+        // transparently; with Limited access only chosen assets are visible.
+        options.includeHiddenAssets = true
 
         let initial: [PHAsset]
         if selected.isEmpty {
@@ -289,7 +294,7 @@ final class BackupManager: ObservableObject {
         )
         var excludedAssetIDs = Set<String>()
         excludedCollections.enumerateObjects { coll, _, _ in
-            let inColl = PHAsset.fetchAssets(in: coll, options: nil)
+            let inColl = PHAsset.fetchAssets(in: coll, options: options)
             inColl.enumerateObjects { asset, _, _ in
                 excludedAssetIDs.insert(asset.localIdentifier)
             }
@@ -378,7 +383,9 @@ final class BackupManager: ObservableObject {
     /// Finds local PHAssets that are safe to delete (already present on the
     /// server, matched by SHA1). Convenience entry point for FreeUpSpaceView.
     func findLocalAssetsAlreadyOnServer() async -> [PHAsset] {
-        let all = PHAsset.fetchAssets(with: nil)
+        let options = PHFetchOptions()
+        options.includeHiddenAssets = true
+        let all = PHAsset.fetchAssets(with: options)
         var candidates: [PHAsset] = []
         all.enumerateObjects { asset, _, _ in candidates.append(asset) }
         return await confirmedOnServer(candidates)

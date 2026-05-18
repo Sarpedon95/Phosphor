@@ -269,20 +269,50 @@ struct BackupView: View {
         guard status == .authorized || status == .limited else { return }
 
         var result: [PHAssetCollection] = []
+        // User-created albums.
         let userAlbums = PHAssetCollection.fetchAssetCollections(
             with: .album, subtype: .albumRegular, options: nil
         )
         userAlbums.enumerateObjects { coll, _, _ in result.append(coll) }
+        // iOS smart albums worth exposing for backup — Hidden + the media-
+        // type collections that mirror what the Photos app shows.
+        let smartTypes: [PHAssetCollectionSubtype] = [
+            .smartAlbumHidden,
+            .smartAlbumFavorites,
+            .smartAlbumScreenshots,
+            .smartAlbumSelfPortraits,
+            .smartAlbumLivePhotos,
+            .smartAlbumVideos,
+            .smartAlbumSlomoVideos,
+            .smartAlbumTimelapses,
+            .smartAlbumPanoramas,
+            .smartAlbumLongExposures,
+            .smartAlbumAnimated,
+            .smartAlbumBursts,
+            .smartAlbumDepthEffect,
+            .smartAlbumRecentlyAdded
+        ]
+        for subtype in smartTypes {
+            let smart = PHAssetCollection.fetchAssetCollections(
+                with: .smartAlbum, subtype: subtype, options: nil
+            )
+            smart.enumerateObjects { coll, _, _ in result.append(coll) }
+        }
         albums = result
 
-        let countResult = PHAsset.fetchAssets(with: nil)
+        // Count "all photos" including hidden — matches what backup will see.
+        let countOptions = PHFetchOptions()
+        countOptions.includeHiddenAssets = true
+        let countResult = PHAsset.fetchAssets(with: countOptions)
         localAssetCount = countResult.count
     }
 
     private func freeUpSpace() async {
         // SAFETY: only delete a local copy after the server confirms (by SHA1
         // checksum) that it actually holds that asset. Never blanket-delete.
-        let all = PHAsset.fetchAssets(with: nil)
+        let opts = PHFetchOptions()
+        opts.includeHiddenAssets = true
+        let all = PHAsset.fetchAssets(with: opts)
         var candidates: [PHAsset] = []
         all.enumerateObjects { asset, _, _ in candidates.append(asset) }
         guard !candidates.isEmpty else { return }

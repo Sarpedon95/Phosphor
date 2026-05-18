@@ -28,9 +28,14 @@ final class ConnectionManager: ObservableObject {
     init() {
         let url = KeychainManager.get(forKey: ImmichAPI.KeychainKey.baseURL) ?? ""
         let key = KeychainManager.get(forKey: ImmichAPI.KeychainKey.apiKey) ?? ""
+        let token = KeychainManager.get(forKey: ImmichAPI.KeychainKey.accessToken) ?? ""
         self.serverURL = url
         self.apiKey = key
-        self.isConfigured = !url.isEmpty && !key.isEmpty
+        // Persisted session is valid if we have a base URL AND either an
+        // API key (legacy) OR a bearer token (email/password flow). Without
+        // the token check the email/password path forced re-onboarding on
+        // every launch.
+        self.isConfigured = !url.isEmpty && (!key.isEmpty || !token.isEmpty)
 
         if isConfigured {
             Task { await testAndConnect() }
