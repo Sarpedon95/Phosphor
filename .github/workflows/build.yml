@@ -190,21 +190,29 @@ jobs:
             ls -la "$ext/" | grep -E "mobileprovision|embedded" || echo "No embedded.mobileprovision"
           done
 
-      # 11. Export the archive to an IPA using ExportOptions.plist.
-      - name: Export archive
-        env:
-          TEAM_ID: ${{ secrets.TEAM_ID }}
+      # 11. Package IPA directly from the signed archive.
+      #     xcodebuild -exportArchive consistently fails to find installed
+      #     profiles at export time despite the archive being correctly signed.
+      #     The archive step already embedded the right profiles and signed all
+      #     three bundles with the distribution cert, so we just zip Payload/.
+      - name: Package IPA
         run: |
           set -o pipefail
-          /usr/libexec/PlistBuddy \
-            -c "Set :teamID ${TEAM_ID}" ExportOptions.plist
-          echo "=== ExportOptions.plist ==="
-          cat ExportOptions.plist
-          xcodebuild -exportArchive \
-            -archivePath "$ARCHIVE_PATH" \
-            -exportOptionsPlist ExportOptions.plist \
-            -exportPath "$EXPORT_PATH" \
-            | tee -a build.log
+          echo "=== Verifying archive signing ==="
+          codesign -dv --verbose=4 \
+            "$ARCHIVE_PATH/Products/Applications/Phosphor.app" 2>&1 | grep -E "Authority|embedded|Identifier"
+          echo "=== Checking embedded.mobileprovision in archive ==="
+          ls "$ARCHIVE_PATH/Products/Applications/Phosphor.app/embedded.mobileprovision" && echo "Main: OK"
+          ls "$ARCHIVE_PATH/Products/Applications/Phosphor.app/PlugIns/PhosphorWidgets.appex/embedded.mobileprovision" && echo "Widgets: OK"
+          ls "$ARCHIVE_PATH/Products/Applications/Phosphor.app/PlugIns/PhosphorLiveActivity.appex/embedded.mobileprovision" && echo "LiveActivity: OK"
+          echo "=== Creating IPA ==="
+          PAYLOAD_DIR=$(mktemp -d)/Payload
+          mkdir -p "$PAYLOAD_DIR"
+          cp -r "$ARCHIVE_PATH/Products/Applications/Phosphor.app" "$PAYLOAD_DIR/"
+          mkdir -p build
+          ABS_IPA="$(pwd)/$IPA_PATH"
+          (cd "$(dirname "$PAYLOAD_DIR")" && zip -qr "$ABS_IPA" Payload/)
+          echo "IPA size: $(du -h "$IPA_PATH" | cut -f1)"
 
       # 11. Inspect IPA contents (debug).
       - name: Inspect IPA contents
