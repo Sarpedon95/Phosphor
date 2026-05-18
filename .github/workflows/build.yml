@@ -166,12 +166,23 @@ jobs:
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="${{ secrets.CODE_SIGN_IDENTITY }}" \
-            PROVISIONING_PROFILE_SPECIFIER="Phosphor App Store" \
             DEVELOPMENT_TEAM="${{ secrets.TEAM_ID }}" \
             ASSETCATALOG_COMPILER_SKIP_OPTIMIZATION=YES \
             | tee build.log
 
-      # 10. Export the archive to an IPA using ExportOptions.plist.
+      # 10. Inspect archive to verify profiles were embedded during archiving.
+      - name: Inspect archive contents
+        run: |
+          echo "=== Archive app bundle ==="
+          ls -la "$ARCHIVE_PATH/Products/Applications/Phosphor.app/" | grep -E "mobileprovision|embedded" || echo "No embedded.mobileprovision in main app"
+          echo "=== Archive extensions ==="
+          ls -la "$ARCHIVE_PATH/Products/Applications/Phosphor.app/PlugIns/" 2>/dev/null || echo "No PlugIns"
+          for ext in "$ARCHIVE_PATH/Products/Applications/Phosphor.app/PlugIns/"*.appex; do
+            echo "--- $ext ---"
+            ls -la "$ext/" | grep -E "mobileprovision|embedded" || echo "No embedded.mobileprovision"
+          done
+
+      # 11. Export the archive to an IPA using ExportOptions.plist.
       - name: Export archive
         env:
           TEAM_ID: ${{ secrets.TEAM_ID }}

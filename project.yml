@@ -32,6 +32,10 @@ settings:
       SUPPORTED_PLATFORMS: iphoneos
       PLATFORM_PREFERRED_ARCH: arm64
       ARCHS: arm64
+      # Enable manual code signing for distribution archives.
+      CODE_SIGN_STYLE: Manual
+      CODE_SIGNING_REQUIRED: YES
+      CODE_SIGNING_ALLOWED: YES
 
 targets:
   Phosphor:
@@ -64,6 +68,9 @@ targets:
         ENABLE_PREVIEWS: YES
         SWIFT_EMIT_LOC_STRINGS: YES
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      configs:
+        Release:
+          PROVISIONING_PROFILE_SPECIFIER: "Phosphor App Store"
     info:
       path: Phosphor/Info.plist
       properties:
@@ -122,6 +129,9 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
         SWIFT_EMIT_LOC_STRINGS: YES
+      configs:
+        Release:
+          PROVISIONING_PROFILE_SPECIFIER: "Phosphor Widgets Distribution"
 
   PhosphorLiveActivity:
     type: app-extension
@@ -145,3 +155,6 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
         SWIFT_EMIT_LOC_STRINGS: YES
+      configs:
+        Release:
+          PROVISIONING_PROFILE_SPECIFIER: "Phosphor LiveActivity Distribution"
