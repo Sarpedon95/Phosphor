@@ -36,8 +36,13 @@ struct EditingToolbar: View {
             HStack(spacing: Spacing.lg) {
                 ForEach(Category.allCases) { c in
                     Button {
-                        category = c
-                        cropPanelActive = (c == .crop)
+                        if c == .crop {
+                            // Crop opens a full-screen editor; keep the
+                            // previously-selected category beneath it.
+                            cropPanelActive = true
+                        } else {
+                            category = c
+                        }
                     } label: {
                         VStack(spacing: 4) {
                             Text(c.rawValue)
@@ -64,7 +69,10 @@ struct EditingToolbar: View {
         case .detail: detailPanel
         case .toneCurve: ToneCurveEditor(viewModel: viewModel)
         case .hsl: hslPanel
-        case .crop: CropEditView(viewModel: viewModel) { cropPanelActive = false }
+        case .crop:
+            // Crop is presented as a full-screen sheet by EditingView; no
+            // inline panel is rendered for this category.
+            EmptyView()
         case .effects: effectsPanel
         }
     }

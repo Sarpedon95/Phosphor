@@ -7,6 +7,8 @@ struct LibraryView: View {
     @State private var showSearch = false
     @State private var continueAsset: ImmichAsset?
     @State private var deepLink: PhotoSelection?
+    @AppStorage(AppSettings.Keys.timelineViewMode)
+    private var viewModeRaw: String = AppSettings.Defaults.timelineViewMode.rawValue
 
     var body: some View {
         NavigationStack {
@@ -52,6 +54,15 @@ struct LibraryView: View {
                 }
                 ToolbarItem(placement: .principal) {
                     libraryHeader
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        cycleViewMode()
+                    } label: {
+                        Image(systemName: cycleSymbol)
+                    }
+                    .accessibilityLabel("Cycle layout — \(cycleAccessibilityLabel)")
+                    .accessibilityHint("Switches between grid, list, and justified.")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -158,6 +169,37 @@ struct LibraryView: View {
         guard let asset = viewModel.allFlatAssets().first(where: { $0.id == id })
         else { continueAsset = nil; return }
         continueAsset = asset
+    }
+
+    private var currentViewMode: TimelineViewMode {
+        TimelineViewMode(rawValue: viewModeRaw) ?? .grid
+    }
+
+    private var cycleSymbol: String {
+        switch currentViewMode {
+        case .grid: return "square.grid.2x2"
+        case .list: return "list.bullet"
+        case .justified: return "rectangle.grid.1x2"
+        }
+    }
+
+    private var cycleAccessibilityLabel: String {
+        switch currentViewMode {
+        case .grid: return "grid"
+        case .list: return "list"
+        case .justified: return "justified"
+        }
+    }
+
+    private func cycleViewMode() {
+        HapticManager.selection()
+        let next: TimelineViewMode
+        switch currentViewMode {
+        case .grid: next = .list
+        case .list: next = .justified
+        case .justified: next = .grid
+        }
+        viewModeRaw = next.rawValue
     }
 
     private func jumpToYear(_ year: Int) {

@@ -40,6 +40,13 @@ final class ConnectionManager: ObservableObject {
     /// Persist credentials to Keychain so `ImmichAPI.shared` picks them up
     /// immediately on the next request.
     func configure(baseURL: String, apiKey: String) {
+        connect(baseURL: baseURL, apiKey: apiKey)
+    }
+
+    /// Persist API-key credentials and mark the connection ready. The
+    /// `connect(baseURL:apiKey:)` / `connect(baseURL:token:)` overloads are the
+    /// canonical entry points for the new onboarding flow.
+    func connect(baseURL: String, apiKey: String) {
         let trimmedURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -47,7 +54,25 @@ final class ConnectionManager: ObservableObject {
         self.apiKey = trimmedKey
         KeychainManager.set(trimmedURL, forKey: ImmichAPI.KeychainKey.baseURL)
         KeychainManager.set(trimmedKey, forKey: ImmichAPI.KeychainKey.apiKey)
+        // A new API key supersedes any previously-stored bearer token.
+        KeychainManager.delete(forKey: ImmichAPI.KeychainKey.accessToken)
         isConfigured = !trimmedURL.isEmpty && !trimmedKey.isEmpty
+        isConnected = isConfigured
+    }
+
+    /// Persist bearer-token credentials (from email + password sign-in).
+    func connect(baseURL: String, token: String) {
+        let trimmedURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        serverURL = trimmedURL
+        // Clear any stale API key — bearer auth is now the canonical credential.
+        apiKey = ""
+        KeychainManager.set(trimmedURL, forKey: ImmichAPI.KeychainKey.baseURL)
+        KeychainManager.set(trimmedToken, forKey: ImmichAPI.KeychainKey.accessToken)
+        KeychainManager.delete(forKey: ImmichAPI.KeychainKey.apiKey)
+        isConfigured = !trimmedURL.isEmpty && !trimmedToken.isEmpty
+        isConnected = isConfigured
     }
 
     /// Validate the stored credentials against the server.

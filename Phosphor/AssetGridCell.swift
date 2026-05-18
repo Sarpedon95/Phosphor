@@ -1,15 +1,36 @@
 import SwiftUI
 import UIKit
 
+enum AssetContextAction {
+    case favorite
+    case archive
+    case addToAlbum
+    case share
+    case trash
+}
+
 /// Square async thumbnail cell shared by every asset grid (timeline, album
 /// detail, favorites, search results, person detail).
 struct AssetGridCell: View {
     let asset: ImmichAsset
     var imageLoader: ImageLoader = .shared
+    var onContextAction: ((AssetContextAction) -> Void)? = nil
 
     @State private var image: UIImage?
 
     var body: some View {
+        // Attach the built-in context menu only when a handler is supplied,
+        // so call sites with their own custom .contextMenu remain unaffected.
+        if let onContextAction {
+            base.contextMenu {
+                contextMenuItems(onContextAction)
+            }
+        } else {
+            base
+        }
+    }
+
+    private var base: some View {
         GeometryReader { geo in
             ZStack {
                 if let image {
@@ -42,6 +63,41 @@ struct AssetGridCell: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityDescription)
         .accessibilityAddTraits(.isImage)
+    }
+
+    @ViewBuilder
+    private func contextMenuItems(_ onContextAction: @escaping (AssetContextAction) -> Void) -> some View {
+        Button {
+            onContextAction(.favorite)
+        } label: {
+            Label(
+                asset.isFavorite ? "Unfavorite" : "Favorite",
+                systemImage: asset.isFavorite ? "heart.slash" : "heart"
+            )
+        }
+        Button {
+            onContextAction(.archive)
+        } label: {
+            Label(
+                asset.isArchived ? "Unarchive" : "Archive",
+                systemImage: asset.isArchived ? "tray.and.arrow.up" : "archivebox"
+            )
+        }
+        Button {
+            onContextAction(.addToAlbum)
+        } label: {
+            Label("Add to Album", systemImage: "rectangle.stack.badge.plus")
+        }
+        Button {
+            onContextAction(.share)
+        } label: {
+            Label("Share", systemImage: "square.and.arrow.up")
+        }
+        Button(role: .destructive) {
+            onContextAction(.trash)
+        } label: {
+            Label("Trash", systemImage: "trash")
+        }
     }
 
     private var accessibilityDescription: String {

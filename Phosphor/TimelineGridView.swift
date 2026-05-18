@@ -13,6 +13,10 @@ struct TimelineGridView<Header: View>: View {
     @State private var pinchStartDensity: Int?
     @State private var collageAssets: CollageAssetSelection?
     @State private var exportAssets: CollageAssetSelection?
+    @State private var pickerAssetIds: PickerAssetIds?
+    @State private var sharedImage: TimelineSharedImage?
+    @State private var isLoadingShare = false
+    @State private var shareFailed = false
     @AppStorage(AppSettings.Keys.readOnlyMode) private var isReadOnly: Bool = AppSettings.Defaults.readOnlyMode
     @AppStorage(AppSettings.Keys.gridDensity) private var gridDensity: Int = AppSettings.Defaults.gridDensity
     @AppStorage(AppSettings.Keys.timelineViewMode) private var viewModeRaw: String = AppSettings.Defaults.timelineViewMode.rawValue
@@ -131,6 +135,15 @@ struct TimelineGridView<Header: View>: View {
         } message: {
             Text("Disable read-only mode in Profile to perform this action.")
         }
+        .sheet(item: $pickerAssetIds) { ids in
+            AlbumPickerView(assetIds: ids.ids)
+        }
+        .sheet(item: $sharedImage) { wrapper in
+            ActivityShareSheet(items: [wrapper.image])
+        }
+        .alert("Could not load image", isPresented: $shareFailed) {
+            Button("OK", role: .cancel) {}
+        }
     }
 
     @ViewBuilder
@@ -198,7 +211,11 @@ struct TimelineGridView<Header: View>: View {
                                 .onTapGesture {
                                     if isSelecting { toggleSelect(asset.id) } else { open(asset) }
                                 }
-                                .contextMenu { if !isSelecting { contextMenu(for: asset) } }
+                                .contextMenu {
+                                    if !isSelecting {
+                                        listContextMenu(for: asset)
+                                    }
+                                }
                                 .onAppear {
                                     if asset.id == lastAssetID {
                                         Task { await viewModel.loadNextPage() }
@@ -227,13 +244,17 @@ struct TimelineGridView<Header: View>: View {
             LazyVStack(spacing: Spacing.sm, pinnedViews: [.sectionHeaders]) {
                 ForEach(groups) { group in
                     Section {
-                        JustifiedLayout(rowHeight: 120, spacing: 2) {
+                        JustifiedLayout(rowHeight: 160, spacing: 2) {
                             ForEach(group.assets) { asset in
                                 JustifiedCell(asset: asset)
                                     .onTapGesture {
                                         if isSelecting { toggleSelect(asset.id) } else { open(asset) }
                                     }
-                                    .contextMenu { if !isSelecting { contextMenu(for: asset) } }
+                                    .contextMenu {
+                                        if !isSelecting {
+                                            listContextMenu(for: asset)
+                                        }
+                                    }
                                     .onAppear {
                                         if asset.id == lastAssetID {
                                             Task { await viewModel.loadNextPage() }
@@ -257,7 +278,10 @@ struct TimelineGridView<Header: View>: View {
 
     @ViewBuilder
     private func cellView(_ asset: ImmichAsset) -> some View {
-        AssetGridCell(asset: asset)
+        AssetGridCell(
+            asset: asset,
+            onContextAction: isSelecting ? nil : { handleContext($0, asset: asset) }
+        )
             .overlay {
                 if isSelecting {
                     ZStack(alignment: .topTrailing) {
@@ -271,7 +295,6 @@ struct TimelineGridView<Header: View>: View {
             .onTapGesture {
                 if isSelecting { toggleSelect(asset.id) } else { open(asset) }
             }
-            .contextMenu { if !isSelecting { contextMenu(for: asset) } }
             .onAppear {
                 if asset.id == lastAssetID {
                     Task { await viewModel.loadNextPage() }
@@ -294,26 +317,26 @@ struct TimelineGridView<Header: View>: View {
         .onAppear { session.saveScrollPosition(sectionId: group.id) }
     }
 
-    @ViewBuilder
-    private func contextMenu(for asset: ImmichAsset) -> some View {
-        Button {
+    private func handleContext(_ action: AssetContextAction, asset: ImmichAsset) {
+        switch action {
+        case .favorite:
             HapticManager.impact(.medium)
             HapticManager.notification(.success)
             Task { await viewModel.toggleFavorite(asset) }
-        } label: {
-            Label(
-                asset.isFavorite ? "Unfavorite" : "Favorite",
-                systemImage: asset.isFavorite ? "heart.slash" : "heart"
-            )
-        }
-
-        if let shareURL = ImmichAPI.shared.originalURL(id: asset.id) {
-            ShareLink(item: shareURL) {
-                Label("Share", systemImage: "square.and.arrow.up")
+        case .archive:
+            Task {
+                do {
+                    _ = try await ImmichAPI.shared.toggleArchive(asset: asset)
+                    HapticManager.notification(.success)
+                } catch {
+                    HapticManager.notification(.error)
+                }
             }
-        }
-
-        Button(role: .destructive) {
+        case .addToAlbum:
+            pickerAssetIds = PickerAssetIds(ids: [asset.id])
+        case .share:
+            startShare(asset)
+        case .trash:
             guard !isReadOnly else {
                 showReadOnlyAlert = true
                 return
@@ -321,7 +344,43 @@ struct TimelineGridView<Header: View>: View {
             HapticManager.impact(.heavy)
             HapticManager.notification(.warning)
             Task { await viewModel.trashAsset(asset) }
-        } label: {
+        }
+    }
+
+    private func startShare(_ asset: ImmichAsset) {
+        guard !isLoadingShare else { return }
+        isLoadingShare = true
+        Task {
+            let image = await ImageLoader.shared.fullImage(for: asset.id)
+            isLoadingShare = false
+            if let image {
+                sharedImage = TimelineSharedImage(image: image)
+            } else {
+                shareFailed = true
+                HapticManager.notification(.error)
+            }
+        }
+    }
+
+    /// Same actions as the grid cell's built-in context menu, used by list /
+    /// justified rows where `AssetGridCell` isn't the underlying view.
+    @ViewBuilder
+    private func listContextMenu(for asset: ImmichAsset) -> some View {
+        Button { handleContext(.favorite, asset: asset) } label: {
+            Label(asset.isFavorite ? "Unfavorite" : "Favorite",
+                  systemImage: asset.isFavorite ? "heart.slash" : "heart")
+        }
+        Button { handleContext(.archive, asset: asset) } label: {
+            Label(asset.isArchived ? "Unarchive" : "Archive",
+                  systemImage: asset.isArchived ? "tray.and.arrow.up" : "archivebox")
+        }
+        Button { handleContext(.addToAlbum, asset: asset) } label: {
+            Label("Add to Album", systemImage: "rectangle.stack.badge.plus")
+        }
+        Button { handleContext(.share, asset: asset) } label: {
+            Label("Share", systemImage: "square.and.arrow.up")
+        }
+        Button(role: .destructive) { handleContext(.trash, asset: asset) } label: {
             Label(
                 isReadOnly ? "Trash (Locked)" : "Trash",
                 systemImage: isReadOnly ? "lock" : "trash"
@@ -404,6 +463,19 @@ struct TimelineGridView<Header: View>: View {
 struct CollageAssetSelection: Identifiable {
     let id = UUID()
     let assets: [ImmichAsset]
+}
+
+/// Identifiable wrapper for driving the AlbumPickerView sheet.
+struct PickerAssetIds: Identifiable {
+    let id = UUID()
+    let ids: [String]
+}
+
+/// Local Identifiable wrapper for ActivityShareSheet (the one in
+/// PhotoDetailView.swift is fileprivate).
+struct TimelineSharedImage: Identifiable {
+    let id = UUID()
+    let image: UIImage
 }
 
 extension TimelineGridView where Header == EmptyView {

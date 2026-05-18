@@ -13,6 +13,7 @@ struct EditingView: View {
     @State private var presetName = ""
     @State private var isSaving = false
     @State private var zoomScale: CGFloat = 1
+    @State private var showSaveConfirm = false
 
     var body: some View {
         NavigationStack {
@@ -43,6 +44,19 @@ struct EditingView: View {
                 if !name.isEmpty { viewModel.saveCurrentAsPreset(name: name) }
                 presetName = ""
             }
+        }
+        .alert("Save as new photo?", isPresented: $showSaveConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Save as New") { Task { await performSave() } }
+        } message: {
+            Text("Your edits will be saved as a new photo in your Immich library. The original is not changed.")
+        }
+        .fullScreenCover(isPresented: $cropPanelActive) {
+            CropEditView(
+                asset: asset,
+                cropRect: $viewModel.adjustments.cropRect,
+                angle: $viewModel.adjustments.straightenAngle
+            )
         }
         .preferredColorScheme(.dark)
     }
@@ -164,9 +178,18 @@ struct EditingView: View {
     }
 
     private func done() async {
+        // Show confirmation before persisting — the user needs to know the
+        // edit creates a new asset rather than modifying the original.
+        showSaveConfirm = true
+    }
+
+    private func performSave() async {
         isSaving = true
         defer { isSaving = false }
-        guard let edited = await viewModel.exportEdited(asset: asset) else { return }
+        guard let edited = await viewModel.exportEdited(asset: asset) else {
+            HapticManager.notification(.error)
+            return
+        }
         let ok = await viewModel.saveToImmich(image: edited, originalAsset: asset)
         if ok {
             HapticManager.notification(.success)

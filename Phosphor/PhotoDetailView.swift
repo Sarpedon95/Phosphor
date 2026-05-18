@@ -29,6 +29,9 @@ struct PhotoDetailView: View {
     @State private var similarAsset: ImmichAsset?
     @State private var showCompactExif = false
     @State private var documentExportURL: URL?
+    @State private var shareImage: SharedImage?
+    @State private var isLoadingShare = false
+    @State private var shareFailed = false
     /// Bumped to a new UUID when the user taps "Motion" in the toolbar; the
     /// currently-visible `LivePhotoPage` observes this and triggers playback.
     @State private var livePlayRequested: UUID = UUID()
@@ -133,6 +136,12 @@ struct PhotoDetailView: View {
         }
         .sheet(item: $documentExportURL) { url in
             DocumentPicker(fileURL: url)
+        }
+        .sheet(item: $shareImage) { wrapper in
+            ActivityShareSheet(items: [wrapper.image])
+        }
+        .alert("Could not load image", isPresented: $shareFailed) {
+            Button("OK", role: .cancel) {}
         }
         .sheet(isPresented: $showSharedLinkSheet) {
             if let asset = currentAsset {
@@ -333,14 +342,21 @@ struct PhotoDetailView: View {
                     .accessibilityLabel("View stack")
                 }
 
-                if let shareURL = ImmichAPI.shared.originalURL(id: asset.id) {
-                    ShareLink(item: shareURL) {
+                Button {
+                    startShare(asset)
+                } label: {
+                    if isLoadingShare {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.phosphorPrimary)
+                    } else {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 18, weight: .semibold))
                     }
-                    .frame(minWidth: TapTarget.minimum, minHeight: TapTarget.minimum)
-                    .accessibilityLabel("Share")
                 }
+                .disabled(isLoadingShare)
+                .frame(minWidth: TapTarget.minimum, minHeight: TapTarget.minimum)
+                .accessibilityLabel("Share")
 
                 Menu {
                     favoriteButton(asset)
@@ -421,12 +437,25 @@ struct PhotoDetailView: View {
         HStack(alignment: .center, spacing: Spacing.lg) {
             if let asset = currentAsset {
                 favoriteToolbarButton(asset)
-                if let shareURL = ImmichAPI.shared.originalURL(id: asset.id) {
-                    ShareLink(item: shareURL) {
+                Button {
+                    startShare(asset)
+                } label: {
+                    if isLoadingShare {
+                        VStack(spacing: 2) {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.phosphorPrimary)
+                            Text("Share")
+                                .font(Typography.caption)
+                                .foregroundStyle(.phosphorPrimary)
+                        }
+                        .frame(minWidth: TapTarget.minimum, minHeight: TapTarget.minimum)
+                    } else {
                         toolbarIcon("square.and.arrow.up", label: "Share")
                     }
-                    .accessibilityLabel("Share")
                 }
+                .disabled(isLoadingShare)
+                .accessibilityLabel("Share")
                 contextualMiddleButton(asset)
                 Button { showInfo = true } label: {
                     toolbarIcon("info.circle", label: "Info")
@@ -623,6 +652,21 @@ struct PhotoDetailView: View {
         }
     }
 
+    private func startShare(_ asset: ImmichAsset) {
+        guard !isLoadingShare else { return }
+        isLoadingShare = true
+        Task {
+            let image = await ImageLoader.shared.fullImage(for: asset.id)
+            isLoadingShare = false
+            if let image {
+                shareImage = SharedImage(image: image)
+            } else {
+                shareFailed = true
+                HapticManager.notification(.error)
+            }
+        }
+    }
+
     private func saveToFiles(_ asset: ImmichAsset) async {
         guard let image = await ImageLoader.shared.fullImage(for: asset.id),
               let data = image.jpegData(compressionQuality: 0.95)
@@ -687,6 +731,7 @@ private struct ZoomablePhotoPage: View {
                     .animation(.easeInOut(duration: 0.2), value: fullImage != nil)
                     .animation(.easeInOut(duration: 0.25), value: deepZoomImage != nil)
                     .gesture(magnification.simultaneously(with: pan))
+                    .simultaneousGesture(doubleTapZoom)
                     .onTapGesture { onTap() }
                     .accessibilityLabel(asset.originalFileName)
                     .accessibilityAddTraits(.isImage)
@@ -838,6 +883,52 @@ private struct ZoomablePhotoPage: View {
                 lastOffset = offset
             }
     }
+
+    /// Double-tap to toggle between 1× and 3× zoom. When zooming in, centers
+    /// the tap location by translating the image so the tapped point ends up
+    /// where the view's center was.
+    private var doubleTapZoom: some Gesture {
+        SpatialTapGesture(count: 2)
+            .onEnded { value in
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                    if scale > 1 {
+                        scale = 1
+                        offset = .zero
+                        lastOffset = .zero
+                        lastScale = 1
+                    } else {
+                        let viewCenter = CGPoint(
+                            x: viewSize.width / 2,
+                            y: viewSize.height / 2
+                        )
+                        let zoomedScale: CGFloat = 3
+                        let dx = (viewCenter.x - value.location.x) * (zoomedScale - 1)
+                        let dy = (viewCenter.y - value.location.y) * (zoomedScale - 1)
+                        offset = CGSize(width: dx, height: dy)
+                        lastOffset = offset
+                        scale = zoomedScale
+                        lastScale = zoomedScale
+                    }
+                }
+                isZoomed = scale > 1
+            }
+    }
+}
+
+// MARK: - Share helpers
+
+private struct SharedImage: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
+struct ActivityShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - Stack presentation

@@ -1,13 +1,16 @@
 import SwiftUI
 
-/// Inline crop panel embedded in `EditingToolbar` (not a sheet). Edits the
-/// view model's `adjustments.cropRect` + `straightenAngle` directly.
+/// Full-screen crop / straighten editor. Edits a local draft, then writes
+/// through the `cropRect` and `angle` bindings on "Done". Cancel discards.
 struct CropEditView: View {
-    @ObservedObject var viewModel: EditingViewModel
-    let onDone: () -> Void
+    let asset: ImmichAsset
+    @Binding var cropRect: CGRect
+    @Binding var angle: Double
+    @Environment(\.dismiss) private var dismiss
 
-    @State private var cropRect: CGRect
-    @State private var angle: Double
+    @State private var image: UIImage?
+    @State private var draftRect: CGRect
+    @State private var draftAngle: Double
     @State private var lockedAspect: CGFloat?
     @State private var dragStart: CGRect?
 
@@ -16,43 +19,93 @@ struct CropEditView: View {
         ("16:9", 16.0/9.0), ("3:2", 3.0/2.0)
     ]
 
-    init(viewModel: EditingViewModel, onDone: @escaping () -> Void) {
-        self.viewModel = viewModel
-        self.onDone = onDone
-        _cropRect = State(initialValue: viewModel.adjustments.cropRect)
-        _angle = State(initialValue: viewModel.adjustments.straightenAngle)
+    init(asset: ImmichAsset, cropRect: Binding<CGRect>, angle: Binding<Double>) {
+        self.asset = asset
+        self._cropRect = cropRect
+        self._angle = angle
+        self._draftRect = State(initialValue: cropRect.wrappedValue)
+        self._draftAngle = State(initialValue: angle.wrappedValue)
     }
 
     var body: some View {
-        VStack(spacing: Spacing.sm) {
-            preview
-            aspectRow
-            straightenRow
-            actionRow
+        NavigationStack {
+            ZStack {
+                Color.phosphorBackground.ignoresSafeArea()
+                VStack(spacing: Spacing.md) {
+                    preview
+                    aspectRow
+                    straightenRow
+                    Spacer(minLength: Spacing.md)
+                }
+                .padding(Spacing.md)
+            }
+            .navigationTitle("Crop")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundStyle(.phosphorAccent)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        cropRect = draftRect
+                        angle = draftAngle
+                        dismiss()
+                    }
+                    .bold()
+                    .foregroundStyle(.phosphorAccent)
+                }
+                ToolbarItem(placement: .bottomBar) {
+                    Button("Reset") {
+                        draftRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+                        draftAngle = 0
+                        lockedAspect = nil
+                    }
+                    .foregroundStyle(.phosphorSecondary)
+                }
+            }
+            .task(id: asset.id) {
+                image = await ImageLoader.shared.fullImage(for: asset.id)
+            }
         }
-        .padding(Spacing.md)
+        .preferredColorScheme(.dark)
     }
 
     private var preview: some View {
         GeometryReader { geo in
             ZStack {
-                if let img = viewModel.previewImage ?? viewModel.originalImage {
-                    Image(uiImage: img)
+                Color.black
+                if let image {
+                    Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
-                        .rotationEffect(.degrees(angle))
+                        .rotationEffect(.degrees(draftAngle))
                     let r = pixelRect(in: geo.size)
+                    Color.black.opacity(0.45)
+                        .mask {
+                            ZStack {
+                                Rectangle()
+                                Rectangle()
+                                    .frame(width: r.width, height: r.height)
+                                    .position(x: r.midX, y: r.midY)
+                                    .blendMode(.destinationOut)
+                            }
+                            .compositingGroup()
+                        }
+                        .allowsHitTesting(false)
                     Rectangle()
                         .strokeBorder(Color.phosphorAccent, lineWidth: 2)
                         .frame(width: r.width, height: r.height)
                         .position(x: r.midX, y: r.midY)
                         .gesture(dragGesture(in: geo.size))
-                    // Rule-of-thirds overlay while interacting.
                     thirdsGrid(in: r)
+                } else {
+                    ProgressView().tint(.phosphorAccent)
                 }
             }
         }
-        .frame(height: 240)
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.small, style: .continuous))
     }
 
     private func thirdsGrid(in r: CGRect) -> some View {
@@ -67,6 +120,7 @@ struct CropEditView: View {
             }
         }
         .stroke(Color.white.opacity(0.3), lineWidth: 0.5)
+        .allowsHitTesting(false)
     }
 
     private var aspectRow: some View {
@@ -88,17 +142,6 @@ struct CropEditView: View {
                             .foregroundStyle(lockedAspect == entry.1 ? .black : .phosphorAccent)
                     }
                 }
-                Button {
-                    angle = (angle == 0) ? 90 : angle  // 90° rotate via straighten clamp
-                    let r = cropRect
-                    cropRect = CGRect(x: r.minY, y: r.minX, width: r.height, height: r.width)
-                } label: {
-                    Image(systemName: "rotate.right")
-                        .padding(.horizontal, Spacing.md)
-                        .padding(.vertical, Spacing.sm)
-                        .background(Color.phosphorSurface, in: Capsule())
-                        .foregroundStyle(.phosphorAccent)
-                }
             }
         }
     }
@@ -108,36 +151,10 @@ struct CropEditView: View {
             HStack {
                 Text("Straighten").font(Typography.caption).foregroundStyle(.phosphorSecondary)
                 Spacer()
-                Text("\(Int(angle))°").font(Typography.caption).foregroundStyle(.phosphorAccent)
-                Button {
-                    Task { await autoStraighten() }
-                } label: {
-                    Image(systemName: "wand.and.stars").foregroundStyle(.phosphorAccent)
-                }
-                .accessibilityLabel("Auto-straighten")
+                Text("\(Int(draftAngle))°").font(Typography.caption).foregroundStyle(.phosphorAccent)
             }
-            Slider(value: $angle, in: -45...45, step: 0.5)
+            Slider(value: $draftAngle, in: -45...45, step: 0.5)
                 .tint(.phosphorAccent)
-        }
-    }
-
-    private var actionRow: some View {
-        HStack {
-            Button("Reset") {
-                cropRect = CGRect(x: 0, y: 0, width: 1, height: 1)
-                angle = 0
-                lockedAspect = nil
-            }
-            .foregroundStyle(.phosphorSecondary)
-            Spacer()
-            Button("Done") {
-                var adj = viewModel.adjustments
-                adj.cropRect = cropRect
-                adj.straightenAngle = angle
-                viewModel.updateAdjustments(adj)
-                onDone()
-            }
-            .foregroundStyle(.phosphorAccent)
         }
     }
 
@@ -145,46 +162,39 @@ struct CropEditView: View {
 
     private func pixelRect(in size: CGSize) -> CGRect {
         CGRect(
-            x: cropRect.minX * size.width,
-            y: cropRect.minY * size.height,
-            width: cropRect.width * size.width,
-            height: cropRect.height * size.height
+            x: draftRect.minX * size.width,
+            y: draftRect.minY * size.height,
+            width: draftRect.width * size.width,
+            height: draftRect.height * size.height
         )
     }
 
     private func dragGesture(in size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
-                if dragStart == nil { dragStart = cropRect }
+                if dragStart == nil { dragStart = draftRect }
                 guard let start = dragStart else { return }
                 let dx = value.translation.width / size.width
                 let dy = value.translation.height / size.height
                 var r = start
                 r.origin.x = max(0, min(1 - r.width, start.minX + dx))
                 r.origin.y = max(0, min(1 - r.height, start.minY + dy))
-                cropRect = r
+                draftRect = r
             }
             .onEnded { _ in dragStart = nil }
     }
 
     private func applyAspect(_ aspect: CGFloat?) {
         guard let aspect else { return }
-        // Fit the largest centered rect of `aspect` inside the image.
-        let cx = cropRect.midX, cy = cropRect.midY
-        var w = cropRect.width
+        let cx = draftRect.midX, cy = draftRect.midY
+        var w = draftRect.width
         var h = w / aspect
         if h > 1 { h = 1; w = h * aspect }
         let r = CGRect(x: cx - w/2, y: cy - h/2, width: w, height: h)
-        cropRect = CGRect(
+        draftRect = CGRect(
             x: max(0, min(1 - w, r.minX)),
             y: max(0, min(1 - h, r.minY)),
             width: w, height: h
         )
-    }
-
-    private func autoStraighten() async {
-        guard let img = viewModel.originalImage else { return }
-        let degrees = await PhotoIntelligenceEngine.shared.detectHorizon(image: img)
-        angle = max(-45, min(45, degrees))
     }
 }
