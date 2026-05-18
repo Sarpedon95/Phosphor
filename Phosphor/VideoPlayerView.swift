@@ -35,7 +35,20 @@ struct VideoPlayerView: View {
               let url = ImmichAPI.shared.videoPlaybackURL(for: asset.id)
         else { return }
 
-        let player = AVPlayer(url: url)
+        let playerItem: AVPlayerItem
+        if let key = KeychainManager.get(forKey: ImmichAPI.KeychainKey.apiKey) {
+            playerItem = makeAuthenticatedPlayerItem(for: url, apiKey: key)
+        } else if let token = KeychainManager.get(forKey: ImmichAPI.KeychainKey.accessToken) {
+            let avAsset = AVURLAsset(
+                url: url,
+                options: [AVURLAssetHTTPHeaderFieldsKey: ["Authorization": "Bearer \(token)"]]
+            )
+            playerItem = AVPlayerItem(asset: avAsset)
+        } else {
+            return
+        }
+
+        let player = AVPlayer(playerItem: playerItem)
         player.actionAtItemEnd = .pause
         self.player = player
 

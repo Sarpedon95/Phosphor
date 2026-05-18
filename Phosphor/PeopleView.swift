@@ -6,24 +6,45 @@ import os
 /// that registers a `navigationDestination(for: Person.self)`.
 struct PeopleView: View {
     @State private var people: [Person] = []
+    @State private var error: Error?
 
     var body: some View {
         content
             .task {
                 guard people.isEmpty else { return }
-                do {
-                    let fetched = try await ImmichAPI.shared.fetchPeople()
-                    people = fetched.filter { !$0.name.isEmpty }
-                } catch {
-                    Logger(subsystem: "com.sarpedon.phosphor", category: "people")
-                        .error("People load failed: \(error.localizedDescription, privacy: .public)")
-                }
+                await loadPeople()
             }
+    }
+
+    private func loadPeople() async {
+        error = nil
+        do {
+            let fetched = try await ImmichAPI.shared.fetchPeople()
+            people = fetched.filter { !$0.name.isEmpty }
+        } catch let caught {
+            error = caught
+            Logger(subsystem: "com.sarpedon.phosphor", category: "people")
+                .error("People load failed: \(caught.localizedDescription, privacy: .public)")
+        }
     }
 
     @ViewBuilder
     private var content: some View {
-        if people.isEmpty {
+        if let error {
+            VStack(spacing: Spacing.m + 2) {
+                Image(systemName: "cloud.slash")
+                    .font(.system(size: 44, weight: .thin))
+                    .foregroundStyle(.phosphorSecondary)
+                Text(error.localizedDescription)
+                    .font(Typography.subheadline)
+                    .foregroundStyle(.phosphorSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, Spacing.xxl + Spacing.s)
+                Button("Retry") { Task { await loadPeople() } }
+                    .foregroundStyle(.phosphorAccent)
+            }
+            .accessibilityElement(children: .combine)
+        } else if people.isEmpty {
             EmptyView()
         } else {
             peopleScrollView

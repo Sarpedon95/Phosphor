@@ -48,10 +48,11 @@ final class ImmichAPI {
 
     private init() {}
 
-    /// Single source of truth for the UserDefaults credential keys.
-    enum DefaultsKey {
+    /// Single source of truth for Keychain credential keys.
+    enum KeychainKey {
         static let baseURL = "immich_base_url"
         static let apiKey = "immich_api_key"
+        static let accessToken = "immich_access_token"
     }
 
     private let session: URLSession = .shared
@@ -59,7 +60,7 @@ final class ImmichAPI {
     // MARK: Credentials (read fresh every call)
 
     private var baseURL: URL? {
-        guard let raw = UserDefaults.phosphor.string(forKey: DefaultsKey.baseURL),
+        guard let raw = KeychainManager.get(forKey: KeychainKey.baseURL),
               !raw.trimmingCharacters(in: .whitespaces).isEmpty
         else { return nil }
         var trimmed = raw.trimmingCharacters(in: .whitespaces)
@@ -68,13 +69,17 @@ final class ImmichAPI {
     }
 
     private var apiKey: String? {
-        guard let key = UserDefaults.phosphor.string(forKey: DefaultsKey.apiKey),
+        guard let key = KeychainManager.get(forKey: KeychainKey.apiKey),
               !key.isEmpty
         else { return nil }
         return key
     }
 
-    var isConfigured: Bool { baseURL != nil && apiKey != nil }
+    private var accessToken: String? {
+        KeychainManager.get(forKey: KeychainKey.accessToken)
+    }
+
+    var isConfigured: Bool { baseURL != nil && (accessToken != nil || apiKey != nil) }
 
     // MARK: Decoding
 
@@ -120,17 +125,26 @@ final class ImmichAPI {
         return url
     }
 
+    private func addAuthHeader(to request: inout URLRequest) throws {
+        if let token = accessToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        } else if let key = apiKey {
+            request.setValue(key, forHTTPHeaderField: "x-api-key")
+        } else {
+            throw ImmichError.notConfigured
+        }
+    }
+
     private func makeRequest(
         path: String,
         method: String,
         query: [URLQueryItem]?,
         body: Data?
     ) throws -> URLRequest {
-        guard let key = apiKey else { throw ImmichError.notConfigured }
         var request = URLRequest(url: try makeURL(path: path, query: query))
         request.httpMethod = method
         request.timeoutInterval = 30
-        request.setValue(key, forHTTPHeaderField: "x-api-key")
+        try addAuthHeader(to: &request)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             request.httpBody = body
@@ -212,10 +226,9 @@ final class ImmichAPI {
 
     /// Builds an authenticated GET request for a media URL produced above.
     func authorizedImageRequest(for url: URL) throws -> URLRequest {
-        guard let key = apiKey else { throw ImmichError.notConfigured }
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
-        request.setValue(key, forHTTPHeaderField: "x-api-key")
+        try addAuthHeader(to: &request)
         return request
     }
 
@@ -237,19 +250,13 @@ final class ImmichAPI {
         }
     }
 
-    /// `{base}/assets/{id}/video/playback?apiKey=…`.
+    /// `{base}/assets/{id}/video/playback`.
     ///
-    /// `AVPlayer` cannot set an `x-api-key` header, so the key is passed as a
-    /// query parameter. Immich's auth middleware accepts the `apiKey` query
-    /// parameter as an alternative to the header — verify this against your
-    /// server version; if it rejects it, switch to an `AVURLAsset` with
-    /// `AVURLAssetHTTPHeaderFieldsKey` instead.
+    /// Auth is added by the caller via `AVURLAsset` headers (see
+    /// `makeAuthenticatedPlayerItem`) rather than a query parameter, keeping
+    /// the API key out of server access logs.
     func videoPlaybackURL(for assetId: String) -> URL? {
-        guard let key = apiKey else { return nil }
-        return try? makeURL(
-            path: "assets/\(assetId)/video/playback",
-            query: [URLQueryItem(name: "apiKey", value: key)]
-        )
+        try? makeURL(path: "assets/\(assetId)/video/playback", query: nil)
     }
 
     // MARK: - Endpoints
@@ -572,16 +579,14 @@ final class ImmichAPI {
         fileModifiedAt: Date,
         isFavorite: Bool = false
     ) async throws -> ImmichAsset {
-        guard let base = baseURL, let key = apiKey else {
-            throw ImmichError.notConfigured
-        }
+        guard let base = baseURL else { throw ImmichError.notConfigured }
         let url = base.appendingPathComponent("assets")
         let boundary = "Boundary-\(UUID().uuidString)"
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 30
-        request.setValue(key, forHTTPHeaderField: "x-api-key")
+        try addAuthHeader(to: &request)
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         let isoFormatter = ISO8601DateFormatter()
@@ -705,6 +710,96 @@ final class ImmichAPI {
         } catch {
             throw ImmichError.networkError(error)
         }
+    }
+
+    /// Login with email + password. Returns the decoded auth response on
+    /// success; throws `ImmichError.unauthorized` on 401.
+    static func login(baseURL: String, email: String, password: String) async throws -> AuthResponse {
+        let trimmedURL: String = {
+            var s = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            while s.hasSuffix("/") { s.removeLast() }
+            return s
+        }()
+        guard !trimmedURL.isEmpty, let base = URL(string: trimmedURL)
+        else { throw ImmichError.notConfigured }
+
+        struct LoginRequest: Encodable {
+            let email: String
+            let password: String
+        }
+        var req = URLRequest(url: base.appendingPathComponent("auth/login"))
+        req.httpMethod = "POST"
+        req.timeoutInterval = 30
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.httpBody = try JSONEncoder().encode(LoginRequest(email: email, password: password))
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: req)
+        } catch {
+            throw ImmichError.networkError(error)
+        }
+        guard let http = response as? HTTPURLResponse else { throw ImmichError.serverError(-1) }
+        switch http.statusCode {
+        case 200..<300:
+            do { return try JSONDecoder().decode(AuthResponse.self, from: data) }
+            catch { throw ImmichError.decodingError(error) }
+        case 401, 403: throw ImmichError.unauthorized
+        default: throw ImmichError.serverError(http.statusCode)
+        }
+    }
+
+    /// Validate a bearer token. Returns `true` if the server responds with 200.
+    static func validateToken(baseURL: String, token: String) async throws -> Bool {
+        let trimmedURL: String = {
+            var s = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            while s.hasSuffix("/") { s.removeLast() }
+            return s
+        }()
+        guard !trimmedURL.isEmpty, let base = URL(string: trimmedURL)
+        else { throw ImmichError.notConfigured }
+
+        var req = URLRequest(url: base.appendingPathComponent("auth/validateToken"))
+        req.httpMethod = "GET"
+        req.timeoutInterval = 30
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (_, response): (Data, URLResponse)
+        do { (_, response) = try await URLSession.shared.data(for: req) }
+        catch { throw ImmichError.networkError(error) }
+        guard let http = response as? HTTPURLResponse else { return false }
+        return http.statusCode == 200
+    }
+
+    /// Probe with email + password instead of an API key. Authenticates via
+    /// the login endpoint and fetches the server version for supplementary info.
+    static func probe(baseURL: String, email: String, password: String) async throws -> (ok: Bool, version: String?, latencyMs: Int) {
+        let start = Date()
+        let auth = try await login(baseURL: baseURL, email: email, password: password)
+        let latencyMs = Int(Date().timeIntervalSince(start) * 1_000)
+
+        let trimmedURL: String = {
+            var s = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            while s.hasSuffix("/") { s.removeLast() }
+            return s
+        }()
+        guard let base = URL(string: trimmedURL) else { return (true, nil, latencyMs) }
+
+        var vReq = URLRequest(url: base.appendingPathComponent("server/version"))
+        vReq.httpMethod = "GET"
+        vReq.setValue("Bearer \(auth.accessToken)", forHTTPHeaderField: "Authorization")
+        vReq.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        var version: String?
+        if let (vData, vResp) = try? await URLSession.shared.data(for: vReq),
+           let http = vResp as? HTTPURLResponse,
+           (200..<300).contains(http.statusCode),
+           let decoded = try? JSONDecoder().decode(ServerVersion.self, from: vData) {
+            version = "\(decoded.major).\(decoded.minor).\(decoded.patch)"
+        }
+        return (true, version, latencyMs)
     }
 
     func fetchServerVersion() async throws -> String {
@@ -840,6 +935,15 @@ private struct CreateSharedLinkRequest: Encodable {
     let expiresAt: Date?
     let allowDownload: Bool
     let showMetadata: Bool
+}
+
+// MARK: - Public response types
+
+struct AuthResponse: Decodable {
+    let accessToken: String
+    let refreshToken: String?
+    let userId: String
+    let userEmail: String
 }
 
 // MARK: - Response DTOs

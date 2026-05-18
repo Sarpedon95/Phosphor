@@ -17,9 +17,28 @@ struct PhosphorApp: App {
         Task { @MainActor in
             BGTaskManager.scheduleRefresh()
         }
+        Self.migrateCredentialsToKeychain()
         let conn = ConnectionManager()
         _connectionManager = StateObject(wrappedValue: conn)
         _profilesManager = StateObject(wrappedValue: ServerProfilesManager(connection: conn))
+    }
+
+    /// One-time migration: move any credentials still sitting in UserDefaults
+    /// (written by builds prior to the Keychain switch) into the Keychain, then
+    /// delete them from UserDefaults so this is a no-op on subsequent launches.
+    private static func migrateCredentialsToKeychain() {
+        let stores: [UserDefaults] = [.phosphor, .standard]
+        for key in [ImmichAPI.KeychainKey.baseURL, ImmichAPI.KeychainKey.apiKey] {
+            if KeychainManager.get(forKey: key) == nil {
+                for store in stores {
+                    if let value = store.string(forKey: key), !value.isEmpty {
+                        KeychainManager.set(value, forKey: key)
+                        break
+                    }
+                }
+            }
+            stores.forEach { $0.removeObject(forKey: key) }
+        }
     }
 
     var body: some Scene {

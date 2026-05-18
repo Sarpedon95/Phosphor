@@ -6,27 +6,48 @@ import os
 struct MemoriesView: View {
     @State private var memories: [ImmichMemory] = []
     @State private var selected: ImmichMemory?
+    @State private var error: Error?
 
     var body: some View {
         memoriesContent
             .task {
                 guard memories.isEmpty else { return }
-                do {
-                    let fetched = try await ImmichAPI.shared.fetchMemories()
-                    memories = fetched.filter { !$0.assets.isEmpty }
-                } catch {
-                    Logger(subsystem: "com.sarpedon.phosphor", category: "memories")
-                        .error("Memories load failed: \(error.localizedDescription, privacy: .public)")
-                }
+                await loadMemories()
             }
             .fullScreenCover(item: $selected) { memory in
                 MemoryDetailView(memory: memory)
             }
     }
 
+    private func loadMemories() async {
+        error = nil
+        do {
+            let fetched = try await ImmichAPI.shared.fetchMemories()
+            memories = fetched.filter { !$0.assets.isEmpty }
+        } catch let caught {
+            error = caught
+            Logger(subsystem: "com.sarpedon.phosphor", category: "memories")
+                .error("Memories load failed: \(caught.localizedDescription, privacy: .public)")
+        }
+    }
+
     @ViewBuilder
     private var memoriesContent: some View {
-        if memories.isEmpty {
+        if let error {
+            VStack(spacing: Spacing.m + 2) {
+                Image(systemName: "cloud.slash")
+                    .font(.system(size: 44, weight: .thin))
+                    .foregroundStyle(.phosphorSecondary)
+                Text(error.localizedDescription)
+                    .font(Typography.subheadline)
+                    .foregroundStyle(.phosphorSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, Spacing.xxl + Spacing.s)
+                Button("Retry") { Task { await loadMemories() } }
+                    .foregroundStyle(.phosphorAccent)
+            }
+            .accessibilityElement(children: .combine)
+        } else if memories.isEmpty {
             EmptyView()
         } else {
             ScrollView(.horizontal, showsIndicators: false) {

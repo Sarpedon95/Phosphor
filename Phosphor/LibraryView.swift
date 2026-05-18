@@ -12,17 +12,33 @@ struct LibraryView: View {
         NavigationStack {
             ZStack {
                 Color.phosphorBackground.ignoresSafeArea()
-                VStack(spacing: 0) {
-                    FilterBar(viewModel: viewModel)
-                    TimelineGridView(viewModel: viewModel) {
-                        VStack(spacing: 0) {
-                            if session.hasFreshContinue {
-                                continueBanner
+                if let error = viewModel.error, viewModel.groupedAssets.isEmpty {
+                    VStack(spacing: Spacing.m + 2) {
+                        Image(systemName: "cloud.slash")
+                            .font(.system(size: 44, weight: .thin))
+                            .foregroundStyle(.phosphorSecondary)
+                        Text(error.localizedDescription)
+                            .font(Typography.subheadline)
+                            .foregroundStyle(.phosphorSecondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, Spacing.xxl + Spacing.s)
+                        Button("Retry") { Task { await viewModel.loadInitial() } }
+                            .foregroundStyle(.phosphorAccent)
+                    }
+                    .accessibilityElement(children: .combine)
+                } else {
+                    VStack(spacing: 0) {
+                        FilterBar(viewModel: viewModel)
+                        TimelineGridView(viewModel: viewModel) {
+                            VStack(spacing: 0) {
+                                if session.hasFreshContinue {
+                                    continueBanner
+                                }
+                                if !session.recentlyViewedAssetIds.isEmpty {
+                                    RecentlyViewedRow()
+                                }
+                                MemoriesView()
                             }
-                            if !session.recentlyViewedAssetIds.isEmpty {
-                                RecentlyViewedRow()
-                            }
-                            MemoriesView()
                         }
                     }
                 }

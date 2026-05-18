@@ -244,6 +244,21 @@ struct SearchView: View {
             recentSection
         } else if viewModel.isSearching {
             shimmerGrid
+        } else if let error = viewModel.error, viewModel.results.isEmpty {
+            VStack(spacing: Spacing.m + 2) {
+                Image(systemName: "cloud.slash")
+                    .font(.system(size: 44, weight: .thin))
+                    .foregroundStyle(.phosphorSecondary)
+                Text(error.localizedDescription)
+                    .font(Typography.subheadline)
+                    .foregroundStyle(.phosphorSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, Spacing.xxl + Spacing.s)
+                Button("Retry") { Task { await viewModel.search(query: searchText) } }
+                    .foregroundStyle(.white)
+            }
+            .padding(.top, 60)
+            .accessibilityElement(children: .combine)
         } else if viewModel.results.isEmpty {
             VStack(spacing: Spacing.m + 2) {
                 Image(systemName: "magnifyingglass")

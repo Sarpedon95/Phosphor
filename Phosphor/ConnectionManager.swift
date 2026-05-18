@@ -13,8 +13,8 @@ final class AuthState: ObservableObject {
 }
 
 /// Owns the user-configurable Immich connection. Credentials are persisted to
-/// the same UserDefaults keys that `ImmichAPI` reads (`ImmichAPI.DefaultsKey`),
-/// so writing them here is what "injects" them into `ImmichAPI.shared`.
+/// the Keychain keys that `ImmichAPI` reads (`ImmichAPI.KeychainKey`), so
+/// writing them here is what "injects" them into `ImmichAPI.shared`.
 @MainActor
 final class ConnectionManager: ObservableObject {
 
@@ -25,18 +25,9 @@ final class ConnectionManager: ObservableObject {
     @Published private(set) var serverVersion: String?
     @Published private(set) var isTesting = false
 
-    private let defaults: UserDefaults
-
-    init(defaults: UserDefaults = .phosphor) {
-        self.defaults = defaults
-
-        // One-time migration: copy credentials written to `.standard` by older
-        // builds (pre App Group) into the shared suite so the widget can see
-        // them. Skip if the suite already has values.
-        Self.migrateStandardIfNeeded(into: defaults)
-
-        let url = defaults.string(forKey: ImmichAPI.DefaultsKey.baseURL) ?? ""
-        let key = defaults.string(forKey: ImmichAPI.DefaultsKey.apiKey) ?? ""
+    init() {
+        let url = KeychainManager.get(forKey: ImmichAPI.KeychainKey.baseURL) ?? ""
+        let key = KeychainManager.get(forKey: ImmichAPI.KeychainKey.apiKey) ?? ""
         self.serverURL = url
         self.apiKey = key
         self.isConfigured = !url.isEmpty && !key.isEmpty
@@ -46,28 +37,16 @@ final class ConnectionManager: ObservableObject {
         }
     }
 
-    private static func migrateStandardIfNeeded(into suite: UserDefaults) {
-        guard suite !== UserDefaults.standard else { return }
-        let standard = UserDefaults.standard
-        for key in [ImmichAPI.DefaultsKey.baseURL, ImmichAPI.DefaultsKey.apiKey] {
-            if suite.string(forKey: key) == nil,
-               let value = standard.string(forKey: key),
-               !value.isEmpty {
-                suite.set(value, forKey: key)
-            }
-        }
-    }
-
-    /// Persist credentials. Written before any API call so `ImmichAPI.shared`
-    /// (which reads UserDefaults fresh per request) picks them up.
+    /// Persist credentials to Keychain so `ImmichAPI.shared` picks them up
+    /// immediately on the next request.
     func configure(baseURL: String, apiKey: String) {
         let trimmedURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
         serverURL = trimmedURL
         self.apiKey = trimmedKey
-        defaults.set(trimmedURL, forKey: ImmichAPI.DefaultsKey.baseURL)
-        defaults.set(trimmedKey, forKey: ImmichAPI.DefaultsKey.apiKey)
+        KeychainManager.set(trimmedURL, forKey: ImmichAPI.KeychainKey.baseURL)
+        KeychainManager.set(trimmedKey, forKey: ImmichAPI.KeychainKey.apiKey)
         isConfigured = !trimmedURL.isEmpty && !trimmedKey.isEmpty
     }
 
@@ -101,8 +80,9 @@ final class ConnectionManager: ObservableObject {
 
     /// Clear stored credentials and disconnect.
     func disconnect() {
-        defaults.removeObject(forKey: ImmichAPI.DefaultsKey.baseURL)
-        defaults.removeObject(forKey: ImmichAPI.DefaultsKey.apiKey)
+        KeychainManager.delete(forKey: ImmichAPI.KeychainKey.baseURL)
+        KeychainManager.delete(forKey: ImmichAPI.KeychainKey.apiKey)
+        KeychainManager.delete(forKey: ImmichAPI.KeychainKey.accessToken)
         serverURL = ""
         apiKey = ""
         isConfigured = false
