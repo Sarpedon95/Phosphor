@@ -1,6 +1,10 @@
 import SwiftUI
 import UIKit
 
+/// File-scope (a generic type can't hold a `static let`) name for the grid's
+/// coordinate space, used by the rubber-band selection hit-test.
+private let timelineGridSpaceName = "timelineGridSpace"
+
 struct TimelineGridView<Header: View>: View {
     @ObservedObject var viewModel: LibraryViewModel
     @EnvironmentObject private var session: SessionState
@@ -21,7 +25,6 @@ struct TimelineGridView<Header: View>: View {
     @State private var dragSelectRect: CGRect?
     @State private var dragSelectAnchor: CGPoint?
 
-    private static let gridSpace = "timelineGridSpace"
     @Namespace private var photoZoom
     @AppStorage(AppSettings.Keys.readOnlyMode) private var isReadOnly: Bool = AppSettings.Defaults.readOnlyMode
     @AppStorage(AppSettings.Keys.gridDensity) private var gridDensity: Int = AppSettings.Defaults.gridDensity
@@ -66,7 +69,7 @@ struct TimelineGridView<Header: View>: View {
     /// never competes with normal scrolling. `.simultaneousGesture` keeps the
     /// pinch + scroll gestures alive.
     private var rubberBandGesture: some Gesture {
-        DragGesture(minimumDistance: 12, coordinateSpace: .named(Self.gridSpace))
+        DragGesture(minimumDistance: 12, coordinateSpace: .named(timelineGridSpaceName))
             .onChanged { value in
                 guard isSelecting else { return }
                 if dragSelectAnchor == nil { dragSelectAnchor = value.startLocation }
@@ -163,7 +166,7 @@ struct TimelineGridView<Header: View>: View {
             AlbumPickerView(assetIds: ids.ids)
         }
         .sheet(item: $sharedImage) { wrapper in
-            ActivityShareSheet(items: [wrapper.image])
+            PhotoActivityShareSheet(items: [wrapper.image])
         }
         .alert("Could not load image", isPresented: $shareFailed) {
             Button("OK", role: .cancel) {}
@@ -211,7 +214,7 @@ struct TimelineGridView<Header: View>: View {
                                     GeometryReader { geo in
                                         Color.clear.preference(
                                             key: CellFramePreferenceKey.self,
-                                            value: [asset.id: geo.frame(in: .named(Self.gridSpace))]
+                                            value: [asset.id: geo.frame(in: .named(timelineGridSpaceName))]
                                         )
                                     }
                                 )
@@ -233,7 +236,7 @@ struct TimelineGridView<Header: View>: View {
                 }
             }
         }
-        .coordinateSpace(name: Self.gridSpace)
+        .coordinateSpace(.named(timelineGridSpaceName))
         .onPreferenceChange(CellFramePreferenceKey.self) { cellFrames = $0 }
         .gesture(pinchGesture)
         .simultaneousGesture(rubberBandGesture)
@@ -559,8 +562,8 @@ struct PickerAssetIds: Identifiable {
     let ids: [String]
 }
 
-/// Local Identifiable wrapper for ActivityShareSheet (the one in
-/// PhotoDetailView.swift is fileprivate).
+/// Identifiable wrapper so a UIImage can drive `.sheet(item:)` for
+/// PhotoActivityShareSheet.
 struct TimelineSharedImage: Identifiable {
     let id = UUID()
     let image: UIImage

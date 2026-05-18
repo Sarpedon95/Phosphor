@@ -41,7 +41,7 @@ struct VideoPlayerView: View {
         } else if let token = KeychainManager.get(forKey: ImmichAPI.KeychainKey.accessToken) {
             let avAsset = AVURLAsset(
                 url: url,
-                options: [AVURLAssetHTTPHeaderFieldsKey: ["Authorization": "Bearer \(token)"]]
+                options: ["AVURLAssetHTTPHeaderFieldsKey": ["Authorization": "Bearer \(token)"]]
             )
             playerItem = AVPlayerItem(asset: avAsset)
         } else {

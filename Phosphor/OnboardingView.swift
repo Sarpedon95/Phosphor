@@ -636,7 +636,7 @@ final class MDNSDiscovery: ObservableObject {
 
         stopTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
-            await self?.stop()
+            self?.stop()
         }
     }
 
@@ -659,10 +659,17 @@ final class MDNSDiscovery: ObservableObject {
             let txtMatch: Bool
             switch result.metadata {
             case .bonjour(let txt):
-                txtMatch = txt.dictionary.values.contains {
-                    $0.localizedCaseInsensitiveContains("immich")
-                } || txt.dictionary.keys.contains {
-                    $0.localizedCaseInsensitiveContains("immich")
+                // NWTXTRecord is a Sequence of (key, Entry); match either a
+                // key or a string value containing "immich".
+                txtMatch = txt.contains { element in
+                    if element.key.localizedCaseInsensitiveContains("immich") {
+                        return true
+                    }
+                    if case let .string(value) = element.value,
+                       value.localizedCaseInsensitiveContains("immich") {
+                        return true
+                    }
+                    return false
                 }
             default:
                 txtMatch = false

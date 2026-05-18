@@ -49,10 +49,6 @@ final class LibraryViewModel: ObservableObject {
     var totalAssetCount: Int { allAssets.count }
     var filteredAssetCount: Int { filteredGroupedAssets.reduce(0) { $0 + $1.assets.count } }
 
-    func allFlatAssets() -> [ImmichAsset] {
-        groupedAssets.flatMap { $0.assets }
-    }
-
     /// Distinct years present in the loaded timeline, newest first.
     var years: [Int] { buildYearCache().years }
 

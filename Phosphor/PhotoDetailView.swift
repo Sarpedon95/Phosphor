@@ -138,7 +138,7 @@ struct PhotoDetailView: View {
             DocumentPicker(fileURL: url)
         }
         .sheet(item: $shareImage) { wrapper in
-            ActivityShareSheet(items: [wrapper.image])
+            PhotoActivityShareSheet(items: [wrapper.image])
         }
         .alert("Could not load image", isPresented: $shareFailed) {
             Button("OK", role: .cancel) {}
@@ -922,7 +922,9 @@ private struct SharedImage: Identifiable {
     let image: UIImage
 }
 
-struct ActivityShareSheet: UIViewControllerRepresentable {
+/// Shared by PhotoDetailView and TimelineGridView. (BatchExportView has its
+/// own file-private variant with a different items source.)
+struct PhotoActivityShareSheet: UIViewControllerRepresentable {
     let items: [Any]
 
     func makeUIViewController(context: Context) -> UIActivityViewController {

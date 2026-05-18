@@ -125,7 +125,7 @@ struct SharedLinksView: View {
     }
 
     private func copyLink(_ link: SharedLink) {
-        if let base = UserDefaults.phosphor.string(forKey: ImmichAPI.DefaultsKey.baseURL) {
+        if let base = KeychainManager.get(forKey: ImmichAPI.KeychainKey.baseURL) {
             let trimmed = base.hasSuffix("/") ? String(base.dropLast()) : base
             UIPasteboard.general.string = "\(trimmed)/share/\(link.key)"
             HapticManager.notification(.success)
@@ -232,7 +232,7 @@ struct SharedLinkCreateView: View {
                 allowDownload: allowDownload,
                 showMetadata: showMetadata
             )
-            if let base = UserDefaults.phosphor.string(forKey: ImmichAPI.DefaultsKey.baseURL) {
+            if let base = KeychainManager.get(forKey: ImmichAPI.KeychainKey.baseURL) {
                 let trimmed = base.hasSuffix("/") ? String(base.dropLast()) : base
                 UIPasteboard.general.string = "\(trimmed)/share/\(link.key)"
             }

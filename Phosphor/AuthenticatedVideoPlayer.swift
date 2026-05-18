@@ -6,7 +6,7 @@ import AVFoundation
 func makeAuthenticatedPlayerItem(for url: URL, apiKey: String) -> AVPlayerItem {
     let asset = AVURLAsset(
         url: url,
-        options: [AVURLAssetHTTPHeaderFieldsKey: ["x-api-key": apiKey]]
+        options: ["AVURLAssetHTTPHeaderFieldsKey": ["x-api-key": apiKey]]
     )
     return AVPlayerItem(asset: asset)
 }
