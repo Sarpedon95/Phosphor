@@ -114,6 +114,11 @@ jobs:
             -S apple-tool:,apple:,codesign: \
             -s -k "$CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
 
+          echo "=== Keychains in search list ==="
+          security list-keychains -d user
+          echo "=== Valid codesigning identities in build keychain ==="
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
       # 8. Install the provisioning profiles (main app + 2 extensions).
       - name: Install provisioning profiles
         env:
