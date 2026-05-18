@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>method</key>
-    <string>app-store</string>
+    <string>app-store-connect</string>
     <!-- teamID is injected by the CI "Set export team ID" step (PlistBuddy);
          xcodebuild does NOT expand $(...) in export option plists. -->
     <key>teamID</key>
@@ -16,17 +16,17 @@
     <false/>
     <key>signingStyle</key>
     <string>manual</string>
-    <!-- Provisioning profile mapping: all targets use the profile from PROVISIONING_PROFILE_SPECIFIER secret.
-         The CI installs this as Phosphor.mobileprovision; the value below should match the
-         "Name" field inside that provisioning profile (often displayed as the profile name in Xcode). -->
+    <!-- Provisioning profile mapping: each target uses its own profile.
+         The CI installs these from the 3 GitHub secrets (PROVISIONING_PROFILE_BASE64_*).
+         Profile names are injected via PlistBuddy in the export step. -->
     <key>provisioningProfileMapping</key>
     <dict>
         <key>com.sarpedon.phosphor</key>
-        <string>Phosphor Distribution</string>
+        <string>Phosphor App Store</string>
         <key>com.sarpedon.phosphor.widgets</key>
-        <string>Phosphor Distribution</string>
+        <string>Phosphor Widgets Distribution</string>
         <key>com.sarpedon.phosphor.liveactivity</key>
-        <string>Phosphor Distribution</string>
+        <string>Phosphor LiveActivity Distribution</string>
     </dict>
     <key>stripSwiftSymbols</key>
     <true/>
