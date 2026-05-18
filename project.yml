@@ -71,6 +71,7 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
       configs:
         Release:
+          CODE_SIGN_IDENTITY: "Apple Distribution"
           PROVISIONING_PROFILE_SPECIFIER: "Phosphor App Store"
     info:
       path: Phosphor/Info.plist
@@ -132,6 +133,7 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: YES
       configs:
         Release:
+          CODE_SIGN_IDENTITY: "Apple Distribution"
           PROVISIONING_PROFILE_SPECIFIER: "Phosphor Widgets Distribution"
 
   PhosphorLiveActivity:
@@ -158,4 +160,5 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: YES
       configs:
         Release:
+          CODE_SIGN_IDENTITY: "Apple Distribution"
           PROVISIONING_PROFILE_SPECIFIER: "Phosphor LiveActivity Distribution"
