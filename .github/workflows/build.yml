@@ -123,12 +123,32 @@ jobs:
         run: |
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILE_DIR"
-          echo "$PROVISIONING_PROFILE_BASE64_MAIN" | base64 --decode \
-            > "$PROFILE_DIR/Phosphor App Store.mobileprovision"
-          echo "$PROVISIONING_PROFILE_BASE64_WIDGETS" | base64 --decode \
-            > "$PROFILE_DIR/Phosphor Widgets Distribution.mobileprovision"
-          echo "$PROVISIONING_PROFILE_BASE64_LIVEACTIVITY" | base64 --decode \
-            > "$PROFILE_DIR/Phosphor LiveActivity Distribution.mobileprovision"
+
+          install_profile() {
+            local b64="$1" name="$2"
+            local tmp=$(mktemp /tmp/profile.XXXXXX)
+            echo "$b64" | base64 --decode > "$tmp"
+            uuid=$(security cms -D -i "$tmp" 2>/dev/null | plutil -extract UUID raw - 2>/dev/null || \
+                   /usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin <<< "$(security cms -D -i "$tmp" 2>/dev/null)")
+            if [ -z "$uuid" ]; then
+              uuid=$(strings "$tmp" | grep -E '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' | head -1)
+            fi
+            echo "Installing $name (UUID: $uuid)"
+            cp "$tmp" "$PROFILE_DIR/$uuid.mobileprovision"
+            rm "$tmp"
+            echo "$uuid"
+          }
+
+          MAIN_UUID=$(install_profile "$PROVISIONING_PROFILE_BASE64_MAIN" "Phosphor App Store")
+          WIDGETS_UUID=$(install_profile "$PROVISIONING_PROFILE_BASE64_WIDGETS" "Phosphor Widgets Distribution")
+          LIVEACTIVITY_UUID=$(install_profile "$PROVISIONING_PROFILE_BASE64_LIVEACTIVITY" "Phosphor LiveActivity Distribution")
+
+          echo "MAIN_UUID=$MAIN_UUID" >> $GITHUB_ENV
+          echo "WIDGETS_UUID=$WIDGETS_UUID" >> $GITHUB_ENV
+          echo "LIVEACTIVITY_UUID=$LIVEACTIVITY_UUID" >> $GITHUB_ENV
+
+          echo "=== Installed profiles ==="
+          ls -la "$PROFILE_DIR/"
 
       # 9. Archive (Release).
       - name: Archive
@@ -146,7 +166,7 @@ jobs:
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="${{ secrets.CODE_SIGN_IDENTITY }}" \
-            PROVISIONING_PROFILE_SPECIFIER="${{ secrets.PROVISIONING_PROFILE_SPECIFIER }}" \
+            PROVISIONING_PROFILE_SPECIFIER="Phosphor App Store" \
             DEVELOPMENT_TEAM="${{ secrets.TEAM_ID }}" \
             ASSETCATALOG_COMPILER_SKIP_OPTIMIZATION=YES \
             | tee build.log
@@ -157,16 +177,16 @@ jobs:
           TEAM_ID: ${{ secrets.TEAM_ID }}
         run: |
           set -o pipefail
-          # xcodebuild does not expand $(...) inside the export plist, so values
-          # are substituted here at build time.
           /usr/libexec/PlistBuddy \
             -c "Set :teamID ${TEAM_ID}" ExportOptions.plist
           /usr/libexec/PlistBuddy \
-            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor 'Phosphor App Store'" ExportOptions.plist
+            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor ${MAIN_UUID}" ExportOptions.plist
           /usr/libexec/PlistBuddy \
-            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor.widgets 'Phosphor Widgets Distribution'" ExportOptions.plist
+            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor.widgets ${WIDGETS_UUID}" ExportOptions.plist
           /usr/libexec/PlistBuddy \
-            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor.liveactivity 'Phosphor LiveActivity Distribution'" ExportOptions.plist
+            -c "Set :provisioningProfileMapping:com.sarpedon.phosphor.liveactivity ${LIVEACTIVITY_UUID}" ExportOptions.plist
+          echo "=== ExportOptions.plist after injection ==="
+          cat ExportOptions.plist
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportOptionsPlist ExportOptions.plist \
