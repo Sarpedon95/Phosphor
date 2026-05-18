@@ -860,23 +860,70 @@ final class ImmichAPI {
         return nil
     }
 
-    /// Resolves a user-typed address to a reachable base + prefix. If the
-    /// user gave no scheme, https is tried before http (8s each). If they
-    /// gave one, it's respected. Returns nil if nothing answered.
+    /// Detects whether the bare host string contains an explicit `:port`.
+    /// IPv6 literals (`[::1]:443`) aren't supported by the typing UI, so we
+    /// just check for a numeric tail after the last colon.
+    private static func hasExplicitPort(in hostPart: String) -> Bool {
+        guard let colon = hostPart.lastIndex(of: ":") else { return false }
+        let tail = hostPart[hostPart.index(after: colon)...]
+        return !tail.isEmpty && tail.allSatisfy(\.isNumber)
+    }
+
+    /// Looks-like-LAN heuristic — IPv4, `.local`, or single-label hostname.
+    /// We append Immich's default `:2283` only to addresses that look local;
+    /// public domains with a reverse proxy usually answer on 443 (or 80).
+    private static func looksLocal(_ host: String) -> Bool {
+        let h = host.lowercased()
+        if h.hasSuffix(".local") { return true }
+        if h.contains("."), h.split(separator: ".").allSatisfy({ Int($0) != nil }) {
+            return true
+        }
+        return !h.contains(".")
+    }
+
+    /// Resolves a user-typed address to a reachable base + prefix. Strategy:
+    ///   • If a scheme was given, respect it.
+    ///   • Otherwise try https then http.
+    ///   • If no port was given AND the host looks local, also try `:2283`.
+    /// Each candidate is checked against `/api` first, then root.
+    /// Returns nil if nothing answered within the probe budget.
     static func resolveConnection(address raw: String) async -> ResolvedConnection? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let hadScheme = trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://")
 
-        let bases: [String]
+        let hadScheme = trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://")
+        let hostPart = bareHost(trimmed)
+        let portInAddress = hasExplicitPort(in: hostPart)
+        let hostOnly: String = {
+            guard let colon = hostPart.lastIndex(of: ":"),
+                  portInAddress
+            else { return hostPart }
+            return String(hostPart[..<colon])
+        }()
+
+        // Candidate bases, in order of likelihood.
+        var bases: [String] = []
         if hadScheme {
-            var s = trimmed
-            while s.hasSuffix("/") { s.removeLast() }
-            bases = [s]
+            bases.append(trimmed)
         } else {
-            let host = bareHost(trimmed)
-            bases = ["https://\(host)", "http://\(host)"]
+            bases.append("https://\(hostPart)")
+            bases.append("http://\(hostPart)")
         }
+        // Local-looking address with no port: also try Immich's default :2283.
+        if !portInAddress && looksLocal(hostOnly) {
+            let host2283 = "\(hostOnly):2283"
+            if hadScheme {
+                let scheme = trimmed.hasPrefix("https://") ? "https" : "http"
+                bases.append("\(scheme)://\(host2283)")
+            } else {
+                bases.append("http://\(host2283)")
+                bases.append("https://\(host2283)")
+            }
+        }
+        // De-dup while preserving order.
+        var seen = Set<String>()
+        bases = bases.filter { seen.insert($0).inserted }
+
         for base in bases {
             if let prefix = await detectAPIPrefix(forBase: base) {
                 return ResolvedConnection(baseURL: base, prefix: prefix)

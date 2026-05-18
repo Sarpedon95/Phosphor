@@ -1,15 +1,28 @@
 import SwiftUI
 import Network
 
-/// Address normalization shared by manual entry and discovery taps. Adds
-/// http:// if no scheme, then :2283 if no explicit port — so the connection
-/// resolver always has an unambiguous URL to try (it upgrades http→https
-/// itself when the user gave no scheme).
+/// Lightly normalizes a user-typed address — strips whitespace and trailing
+/// slashes only. The connection resolver decides scheme and port from the
+/// shape of what's left, so we never force `:2283` onto a remote domain
+/// (which is the most common reverse-proxy setup, running on default :443).
 func normalizeImmichURL(_ raw: String) -> String {
     var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !s.hasPrefix("http://") && !s.hasPrefix("https://") { s = "http://" + s }
-    if let url = URL(string: s), url.port == nil { s += ":2283" }
+    while s.hasSuffix("/") { s.removeLast() }
     return s
+}
+
+/// Heuristic: looks like a LAN-only address (IP, .local, or single-label
+/// hostname) where Immich's default :2283 is the likely listening port.
+func looksLikeLocalAddress(_ host: String) -> Bool {
+    let h = host.lowercased()
+    if h.hasSuffix(".local") { return true }
+    // Bare IPv4 (e.g. 192.168.1.10) — every segment numeric.
+    if h.contains("."),
+       h.split(separator: ".").allSatisfy({ Int($0) != nil }) {
+        return true
+    }
+    // Single label, no dots — like "immich" or "homeserver".
+    return !h.contains(".")
 }
 
 /// First-run / re-auth connection flow, modeled on a friendly home-appliance
@@ -283,9 +296,10 @@ private struct CredentialsScreen: View {
     @State private var host: String
     @State private var portText: String
     @State private var useHTTPS: Bool
-    /// Until the user actually flips the HTTPS toggle we keep the address
-    /// scheme-less so the resolver can try https then http (Problem 1.6).
-    @State private var userForcedScheme = false
+    /// True once the user actually flips the HTTPS toggle or types into the
+    /// port field. Until then the address stays exactly as they typed it on
+    /// Screen 1, so the resolver does autodetection.
+    @State private var userOverrodeAddress = false
     @State private var allowSelfSigned = false
     @State private var showConnectionSettings = false
 
@@ -293,6 +307,7 @@ private struct CredentialsScreen: View {
     @State private var password = ""
     @State private var showPassword = false
     @State private var isSubmitting = false
+    @State private var progressMessage: String?
     @State private var errorMessage: String?
     @State private var shake = 0
     @FocusState private var focused: Field?
@@ -305,23 +320,23 @@ private struct CredentialsScreen: View {
         self.onUseAPIKey = onUseAPIKey
         let parsed = Self.parse(initialAddress)
         _host = State(initialValue: parsed.host)
-        _portText = State(initialValue: parsed.port)
-        // Visual default per spec ("Use HTTPS" on); it only forces a scheme
-        // once the user actually toggles it (userForcedScheme).
-        _useHTTPS = State(initialValue: true)
+        // Only pre-fill the port if the user actually typed one — public
+        // domains usually answer on the default 443, not Immich's :2283.
+        _portText = State(initialValue: parsed.port ?? "")
+        // HTTPS toggle reflects what the user typed: on for https://, off
+        // for http://, otherwise on by default (most modern setups).
+        _useHTTPS = State(initialValue: parsed.scheme ?? true)
     }
 
-    /// Reconstructs the address from the editable components so the three
-    /// connection-settings controls stay in sync with what gets stored.
-    /// Scheme-less until the user forces one via the HTTPS toggle, so the
-    /// resolver performs https→http autodetection.
+    /// Address sent to the resolver. If the user hasn't touched the
+    /// connection-settings controls, this is verbatim what they typed on
+    /// Screen 1, letting the resolver autodetect scheme/port. Once they
+    /// edit a control we honor it.
     private var effectiveURL: String {
+        if !userOverrodeAddress { return initialAddress }
         let trimmedPort = portText.trimmingCharacters(in: .whitespaces)
         let hostPort = trimmedPort.isEmpty ? host : "\(host):\(trimmedPort)"
-        if userForcedScheme {
-            return "\(useHTTPS ? "https" : "http")://\(hostPort)"
-        }
-        return hostPort
+        return "\(useHTTPS ? "https" : "http")://\(hostPort)"
     }
 
     var body: some View {
@@ -339,10 +354,23 @@ private struct CredentialsScreen: View {
 
             signInButton
 
-            if let errorMessage {
+            if let progressMessage {
+                HStack(spacing: Spacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.phosphorSecondary)
+                    Text(progressMessage)
+                        .font(Typography.footnote)
+                        .foregroundStyle(.phosphorSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .transition(.opacity)
+            } else if let errorMessage {
                 Text(errorMessage)
                     .font(Typography.footnote)
                     .foregroundStyle(.phosphorError)
+                    .multilineTextAlignment(.leading)
                     .transition(.opacity)
             }
 
@@ -366,14 +394,19 @@ private struct CredentialsScreen: View {
 
     private var serverPill: some View {
         Button(action: onBack) {
-            Text(effectiveURL)
-                .font(Typography.caption)
-                .foregroundStyle(.phosphorSecondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.xs)
-                .background(Color.white.opacity(0.08), in: Capsule())
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.phosphorTertiary)
+                Text(effectiveURL)
+                    .font(Typography.caption)
+                    .foregroundStyle(.phosphorSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.xs)
+            .background(Color.white.opacity(0.08), in: Capsule())
         }
         .accessibilityLabel("Server \(effectiveURL). Tap to change.")
     }
@@ -480,24 +513,31 @@ private struct CredentialsScreen: View {
                     .font(Typography.subheadline)
                     .foregroundStyle(.phosphorPrimary)
                     .tint(.phosphorAccent)
+                Text("Most home setups don't need this.")
+                    .font(Typography.caption)
+                    .foregroundStyle(.phosphorTertiary)
 
                 HStack {
                     Text("Port")
                         .font(Typography.subheadline)
                         .foregroundStyle(.phosphorPrimary)
                     Spacer()
-                    TextField("2283", text: $portText)
+                    TextField("Auto", text: $portText)
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.trailing)
                         .frame(width: 80)
                         .foregroundStyle(.phosphorPrimary)
+                        .onChange(of: portText) { _, _ in userOverrodeAddress = true }
                 }
+                Text("Leave blank for default (Immich :2283 on LAN, :443 with HTTPS).")
+                    .font(Typography.caption)
+                    .foregroundStyle(.phosphorTertiary)
 
                 Toggle("Use HTTPS", isOn: $useHTTPS)
                     .font(Typography.subheadline)
                     .foregroundStyle(.phosphorPrimary)
                     .tint(.phosphorAccent)
-                    .onChange(of: useHTTPS) { _, _ in userForcedScheme = true }
+                    .onChange(of: useHTTPS) { _, _ in userOverrodeAddress = true }
             }
             .padding(.top, Spacing.sm)
         } label: {
@@ -514,21 +554,35 @@ private struct CredentialsScreen: View {
         focused = nil
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedEmail.isEmpty, !password.isEmpty else { return }
+        let address = effectiveURL
         isSubmitting = true
         errorMessage = nil
+        withAnimation { progressMessage = "Finding \(address)…" }
         persistSelfSigned()
-        defer { isSubmitting = false }
+        defer { isSubmitting = false; progressMessage = nil }
+
+        // Resolve first so the user sees what URL actually answered before we
+        // try to authenticate — and so a wrong address fails fast (8s probe).
+        guard let resolved = await ImmichAPI.resolveConnection(address: address) else {
+            present(.networkError(URLError(.cannotConnectToHost)))
+            return
+        }
+        await MainActor.run {
+            withAnimation { progressMessage = "Signing in at \(resolved.baseURL)…" }
+        }
+
         do {
-            let result = try await ImmichAPI.connectWithPassword(
-                address: effectiveURL,
+            let auth = try await ImmichAPI.login(
+                baseURL: resolved.baseURL,
+                prefix: resolved.prefix,
                 email: trimmedEmail,
                 password: password
             )
             await MainActor.run {
                 connectionManager.connect(
-                    baseURL: result.baseURL,
-                    token: result.token,
-                    prefix: result.prefix
+                    baseURL: resolved.baseURL,
+                    token: auth.accessToken,
+                    prefix: resolved.prefix
                 )
                 HapticManager.notification(.success)
             }
@@ -551,35 +605,39 @@ private struct CredentialsScreen: View {
     private func present(_ error: ImmichError) {
         switch error {
         case .unauthorized:
-            errorMessage = "Wrong email or password"
+            errorMessage = "Wrong email or password."
         case .networkError:
-            errorMessage = "Could not reach server — check the address"
+            errorMessage = "Couldn't reach \(effectiveURL). If it's a remote domain, double-check the address. If it uses a self-signed cert, enable it in Connection settings."
         case .notConfigured:
-            errorMessage = "That address doesn't look right"
+            errorMessage = "That address doesn't look right."
         case .decodingError:
-            errorMessage = "The server responded unexpectedly"
+            errorMessage = "Reached \(effectiveURL) but it didn't respond like Immich. Is the port right?"
         case .serverError(let code):
-            errorMessage = "Server error (HTTP \(code))"
+            errorMessage = "Server returned HTTP \(code) at \(effectiveURL)."
         }
         HapticManager.notification(.error)
         withAnimation(.spring(response: 0.25, dampingFraction: 0.35)) { shake += 1 }
     }
 
-    private static func parse(_ address: String) -> (host: String, port: String, https: Bool) {
-        let https = address.hasPrefix("https://")
+    /// Splits a user-typed address into (host, optional explicit port,
+    /// optional explicit scheme). Returning nil for port/scheme when absent
+    /// is the signal to the UI: leave that control empty, don't make one up.
+    private static func parse(_ address: String) -> (host: String, port: String?, scheme: Bool?) {
+        let scheme: Bool? = {
+            if address.hasPrefix("https://") { return true }
+            if address.hasPrefix("http://")  { return false }
+            return nil
+        }()
         var s = address
         if s.hasPrefix("https://") { s.removeFirst(8) }
         else if s.hasPrefix("http://") { s.removeFirst(7) }
         while s.hasSuffix("/") { s.removeLast() }
         if let colon = s.lastIndex(of: ":"),
-           // Only treat as port if everything after the colon is digits.
-           s[s.index(after: colon)...].allSatisfy(\.isNumber),
-           !s[s.index(after: colon)...].isEmpty {
-            let h = String(s[..<colon])
-            let p = String(s[s.index(after: colon)...])
-            return (h, p, https)
+           !s[s.index(after: colon)...].isEmpty,
+           s[s.index(after: colon)...].allSatisfy(\.isNumber) {
+            return (String(s[..<colon]), String(s[s.index(after: colon)...]), scheme)
         }
-        return (s, "2283", https)
+        return (s, nil, scheme)
     }
 }
 
